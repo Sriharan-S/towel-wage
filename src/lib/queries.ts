@@ -117,6 +117,19 @@ export function useSetAdjustments(weekStart: ISODate) {
   });
 }
 
+export function useSettleWeek(weekStart: ISODate) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (workerId?: number) => api.weeks.settle(weekStart, workerId),
+    onSuccess: (week) => {
+      client.setQueryData(keys.week(weekStart), week);
+      client.invalidateQueries({ queryKey: ["week"] });
+      client.invalidateQueries({ queryKey: ["weeks"] });
+      client.invalidateQueries({ queryKey: ["stats"] });
+    },
+  });
+}
+
 export function useFinalizeWeek(weekStart: ISODate) {
   const client = useQueryClient();
   return useMutation({

@@ -8,6 +8,7 @@ import {
   Share2,
   Sparkles,
   Wallet,
+  Wand2,
 } from "lucide-react";
 import { PageBody, PageHeader } from "@/components/layout/AppShell";
 import { DateNav } from "@/components/DateNav";
@@ -27,9 +28,11 @@ import {
   useBootstrap,
   useFinalizeWeek,
   useSetAdjustments,
+  useSettleWeek,
   useToday,
   useWeek,
 } from "@/lib/queries";
+import { SettlementPlan } from "@/components/SettlementPlan";
 import {
   addWeeks,
   formatWeekRange,
@@ -51,13 +54,18 @@ export default function Week() {
   const week = useWeek(weekStart);
   const bootstrap = useBootstrap();
   const setAdjustments = useSetAdjustments(weekStart);
+  const settle = useSettleWeek(weekStart);
   const finalize = useFinalizeWeek(weekStart);
   const { toast } = useToast();
 
   const [expanded, setExpanded] = useState<number | null>(null);
-  const [confirming, setConfirming] = useState<"finalize" | "reopen" | null>(null);
+  const [confirming, setConfirming] = useState<"finalize" | "reopen" | "settle" | null>(null);
+
+  const unsettledCount =
+    week.data?.workers.filter((w) => !w.settlement.isNoop).length ?? 0;
 
   const roundingStep = bootstrap.data?.settings.roundingStep ?? 100;
+  const roundingMode = bootstrap.data?.settings.roundingMode ?? "hold";
   const isFinalized = week.data?.status === "finalized";
 
   const goto = (date: string) => navigate(`/week/${weekStartOf(date)}`);
@@ -97,6 +105,16 @@ export default function Week() {
         subtitle={`${formatWeekRange(weekStart)} · Sunday to Saturday`}
         action={
           <>
+            {!isFinalized && unsettledCount > 0 && (
+              <Button
+                size="sm"
+                icon={<Wand2 size={15} />}
+                onClick={() => setConfirming("settle")}
+                loading={settle.isPending}
+              >
+                Settle all
+              </Button>
+            )}
             <Button size="sm" icon={<Share2 size={15} />} onClick={shareSummary}>
               <span className="hidden sm:inline">Share</span>
             </Button>
@@ -174,6 +192,16 @@ export default function Week() {
               }
               readOnly={isFinalized}
               roundingStep={roundingStep}
+              settling={settle.isPending}
+              onSettle={() =>
+                settle.mutate(worker.workerId, {
+                  onSuccess: () => toast(`Settled ${worker.workerName}.`, { tone: "success" }),
+                  onError: (error) =>
+                    toast(error instanceof Error ? error.message : "Could not settle", {
+                      tone: "error",
+                    }),
+                })
+              }
               onSave={(body) =>
                 setAdjustments.mutate(
                   { workerId: worker.workerId, ...body },
@@ -220,6 +248,42 @@ export default function Week() {
           </Card>
         )}
       </PageBody>
+
+      <ConfirmSheet
+        open={confirming === "settle"}
+        onClose={() => setConfirming(null)}
+        loading={settle.isPending}
+        confirmLabel={`Settle ${unsettledCount} ${unsettledCount === 1 ? "worker" : "workers"}`}
+        title="Settle everyone?"
+        description={
+          <>
+            For each worker this recovers what they owe you (never more than they earned this
+            week), pays back what you owe them, and rounds the payment
+            {roundingMode === "hold"
+              ? " down to the nearest ₹" +
+                roundingStep +
+                ", holding the difference for next week"
+              : roundingMode === "give"
+                ? " up to the nearest ₹" + roundingStep
+                : " to the nearest ₹" + roundingStep}
+            . You can adjust any worker afterwards.
+          </>
+        }
+        onConfirm={() =>
+          settle.mutate(undefined, {
+            onSuccess: (result) => {
+              setConfirming(null);
+              toast(`Settled — ${formatINR(result.totals.netPayable)} to pay out.`, {
+                tone: "success",
+              });
+            },
+            onError: (error) =>
+              toast(error instanceof Error ? error.message : "Could not settle", {
+                tone: "error",
+              }),
+          })
+        }
+      />
 
       <ConfirmSheet
         open={confirming === "finalize"}
@@ -302,6 +366,8 @@ function WorkerCard({
   onToggle,
   readOnly,
   roundingStep,
+  settling,
+  onSettle,
   onSave,
 }: {
   worker: WorkerWeekResult;
@@ -310,6 +376,8 @@ function WorkerCard({
   onToggle: () => void;
   readOnly: boolean;
   roundingStep: number;
+  settling: boolean;
+  onSettle: () => void;
   onSave: (body: Partial<Adjustments> & { paid?: boolean }) => void;
 }) {
   // Local text state so typing feels immediate; committed on blur.
@@ -350,9 +418,8 @@ function WorkerCard({
     onSave({ credit: result.credit, debit: result.debit });
   };
 
-  const hasSuggestion =
-    (worker.suggested.deduct > 0 && parsed.deduct !== worker.suggested.deduct) ||
-    (worker.suggested.addback > 0 && parsed.addback !== worker.suggested.addback);
+  // Something is outstanding or the payment isn't a round figure yet.
+  const needsSettling = !readOnly && !worker.settlement.isNoop;
 
   return (
     <Card className="overflow-hidden">
@@ -370,9 +437,9 @@ function WorkerCard({
                 <Check size={11} /> Paid
               </Badge>
             )}
-            {hasSuggestion && !readOnly && (
+            {needsSettling && (
               <Badge tone="warning">
-                <Sparkles size={11} /> Pending
+                <Sparkles size={11} /> {formatINR(worker.settlement.netPayable)} suggested
               </Badge>
             )}
           </div>
@@ -431,11 +498,23 @@ function WorkerCard({
             </div>
           </div>
 
-          {/* Rounding shortcuts */}
+          {/* The one-tap proposal: settle what's carried forward, then round. */}
+          {!readOnly && (
+            <div className="mt-4">
+              <SettlementPlan
+                settlement={worker.settlement}
+                workerName={worker.workerName}
+                onApply={onSettle}
+                applying={settling}
+              />
+            </div>
+          )}
+
+          {/* Manual rounding, for when the proposal isn't what you want */}
           {!readOnly && (
             <div className="mt-4">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
-                Round the payment
+                Or round it yourself
               </h3>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {ROUNDING_STEPS.map((step) => (

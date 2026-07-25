@@ -8,6 +8,7 @@
 
 import type {
   Entry,
+  RoundingMode,
   Settings,
   WeekAdjustmentRecord,
   WorkKind,
@@ -15,6 +16,7 @@ import type {
   Worker,
   WorkerRate,
 } from "@shared/types";
+import { ROUNDING_MODES } from "@shared/types";
 import { DEFAULT_TIMEZONE } from "@shared/dates";
 
 export interface WorkTypeRow {
@@ -143,16 +145,21 @@ export const DEFAULT_SETTINGS: Settings = {
   businessName: "Towel Wage",
   timezone: DEFAULT_TIMEZONE,
   roundingStep: 100,
+  roundingMode: "hold",
   currency: "INR",
 };
 
 export function toSettings(rows: Array<{ key: string; value: string }>): Settings {
   const map = new Map(rows.map((r) => [r.key, r.value]));
   const step = Number(map.get("rounding_step"));
+  const mode = map.get("rounding_mode");
   return {
     businessName: map.get("business_name") ?? DEFAULT_SETTINGS.businessName,
     timezone: map.get("timezone") ?? DEFAULT_SETTINGS.timezone,
     roundingStep: Number.isFinite(step) && step > 0 ? step : DEFAULT_SETTINGS.roundingStep,
+    roundingMode: ROUNDING_MODES.includes(mode as RoundingMode)
+      ? (mode as RoundingMode)
+      : DEFAULT_SETTINGS.roundingMode,
     currency: map.get("currency") ?? DEFAULT_SETTINGS.currency,
   };
 }

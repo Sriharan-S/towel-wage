@@ -14,6 +14,8 @@ import type {
   Balance,
   Entry,
   LineItemResult,
+  RoundingMode,
+  Settlement,
   WorkKind,
   WorkType,
   WorkerRate,
@@ -214,10 +216,34 @@ export function suggestFromBalance(opening: Balance): { deduct: number; addback:
 }
 
 /**
+ * Round a payable amount to a clean figure.
+ *
+ * Paise are always resolved to the NEAREST rupee first: nobody hands over 56
+ * paise, and ₹2,109.56 should become ₹2,110 rather than ₹2,109. The chosen step
+ * is then applied to that whole-rupee figure in the requested direction.
+ *
+ * Guard: rounding down must never wipe the payment out entirely. Flooring ₹21
+ * to the nearest ₹100 would be ₹0 — pay nothing, still owe ₹21 — so in that
+ * case the whole-rupee figure stands instead.
+ */
+export function roundPayable(
+  amount: number,
+  stepRupees: number,
+  direction: "up" | "down" | "nearest",
+): number {
+  const toRupee = roundPaiseTo(amount, 1, "nearest");
+  if (stepRupees <= 1) return toRupee;
+
+  const target = roundPaiseTo(toRupee, stepRupees, direction);
+  if (target === 0 && toRupee > 0) return toRupee;
+  return target;
+}
+
+/**
  * Work out the Credit or Debit needed to make the payment a round figure.
  *
  * Deduct and add-back are treated as already settled, so only the rounding
- * knobs move: wage ₹1,980 rounded up to ₹10 gives credit ₹20 (pay ₹2,000);
+ * knobs move: wage ₹1,980 rounded up to ₹100 gives credit ₹20 (pay ₹2,000);
  * wage ₹2,010 rounded down gives debit ₹10 (pay ₹2,000).
  */
 export function computeRounding(
@@ -227,12 +253,84 @@ export function computeRounding(
   direction: "up" | "down" | "nearest",
 ): { credit: number; debit: number; netPayable: number } {
   const settled = wage - adj.deduct + adj.addback;
-  const target = roundPaiseTo(settled, stepRupees, direction);
+  const target = roundPayable(settled, stepRupees, direction);
   const delta = target - settled;
   return {
     credit: delta > 0 ? delta : 0,
     debit: delta < 0 ? -delta : 0,
     netPayable: target,
+  };
+}
+
+const DIRECTION_FOR_MODE: Record<RoundingMode, "up" | "down" | "nearest"> = {
+  hold: "down",
+  nearest: "nearest",
+  give: "up",
+};
+
+/**
+ * The one-tap proposal for what to hand a worker this week.
+ *
+ * It does in one step what would otherwise be four fields and a rounding
+ * button, and it does them in the order that actually makes sense:
+ *
+ *   1. Recover what the worker already owes you — but never more than they
+ *      earned this week. Clawing back ₹500 from a ₹300 wage would mean handing
+ *      over a negative amount; the shortfall simply stays outstanding.
+ *   2. Pay back whatever you owe them, in full.
+ *   3. Resolve the paise to the nearest rupee.
+ *   4. Round to the chosen step, preferring to hold money back rather than
+ *      front it: rounding down leaves a debit that carries to next week, which
+ *      costs you nothing, whereas rounding up puts your own money out on loan
+ *      until you remember to claw it back.
+ *
+ * Rounding up stays available — it is a preference, not a rule.
+ */
+export function suggestSettlement(params: {
+  wage: number;
+  opening: Balance;
+  /** rupees; 1 means "just clear the paise" */
+  step: number;
+  mode: RoundingMode;
+  /** adjustments already entered by hand, to detect a no-op */
+  current?: Adjustments;
+}): Settlement {
+  const { wage, opening, step, mode, current } = params;
+
+  // 1. Recover an earlier credit, capped at this week's wage.
+  const outstandingCredit = Math.max(0, opening.creditOutstanding);
+  const deduct = Math.min(outstandingCredit, Math.max(0, wage));
+  const remainingCredit = outstandingCredit - deduct;
+
+  // 2. Repay an earlier debit in full.
+  const addback = Math.max(0, opening.debitOutstanding);
+
+  // 3 & 4. Round what is left.
+  const settled = wage - deduct + addback;
+  const netPayable = roundPayable(settled, step, DIRECTION_FOR_MODE[mode]);
+  const delta = netPayable - settled;
+  const credit = delta > 0 ? delta : 0;
+  const debit = delta < 0 ? -delta : 0;
+
+  const proposal: Adjustments = { credit, deduct, debit, addback };
+  const isNoop =
+    current !== undefined &&
+    current.credit === credit &&
+    current.deduct === deduct &&
+    current.debit === debit &&
+    current.addback === addback;
+
+  return {
+    ...proposal,
+    netPayable,
+    settled,
+    remainingCredit,
+    // What you will owe once this is paid: the old debit is cleared by the
+    // add-back, and anything rounded down is newly owed.
+    carriedDebit: Math.max(0, opening.debitOutstanding - addback) + debit,
+    mode,
+    step,
+    isNoop,
   };
 }
 

@@ -126,6 +126,58 @@ app.put("/:weekStart/adjustments/:workerId", async (c) => {
 });
 
 /**
+ * Apply the one-tap settlement — for one worker, or for everyone at once.
+ *
+ * The proposal is recomputed here rather than accepted from the request body,
+ * so it can never be applied against a wage that has moved since the screen was
+ * loaded. See suggestSettlement() for what it does and why.
+ */
+app.post("/:weekStart/settle/:workerId?", async (c) => {
+  const weekStart = weekStartOf(readDate(c.req.param("weekStart"), "weekStart"));
+  const workerParam = c.req.param("workerId");
+  const workerId = workerParam ? readId(c, "workerId") : null;
+
+  await assertWeekOpen(c.env.DB, weekStart);
+  await ensureWeek(c.env.DB, weekStart);
+
+  const week = await computeWeek(c.env.DB, weekStart);
+  const targets = workerId
+    ? week.workers.filter((w) => w.workerId === workerId)
+    : week.workers;
+
+  if (targets.length === 0) {
+    throw new HTTPException(404, {
+      message: workerId ? "Worker has nothing to settle this week." : "Nothing to settle.",
+    });
+  }
+
+  await c.env.DB.batch(
+    targets.map((worker) =>
+      c.env.DB
+        .prepare(
+          `INSERT INTO week_adjustments (week_start, worker_id, credit, deduct, debit, addback)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT (week_start, worker_id) DO UPDATE SET
+             credit  = excluded.credit,
+             deduct  = excluded.deduct,
+             debit   = excluded.debit,
+             addback = excluded.addback`,
+        )
+        .bind(
+          weekStart,
+          worker.workerId,
+          worker.settlement.credit,
+          worker.settlement.deduct,
+          worker.settlement.debit,
+          worker.settlement.addback,
+        ),
+    ),
+  );
+
+  return c.json(await computeWeek(c.env.DB, weekStart));
+});
+
+/**
  * Finalize the week: lock entries against editing and freeze each worker's wage
  * and net payable. The freeze is belt-and-braces — entry-level rate snapshots
  * already keep history accurate — but it also captures the figure that was

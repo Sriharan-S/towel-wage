@@ -20,6 +20,7 @@ const settingsSchema = z.object({
     }, "unknown timezone")
     .optional(),
   roundingStep: z.number().int().positive().max(10_000).optional(),
+  roundingMode: z.enum(["hold", "nearest", "give"]).optional(),
   currency: z.string().trim().length(3).optional(),
 });
 
@@ -32,6 +33,7 @@ app.patch("/", async (c) => {
   if (body.businessName !== undefined) pairs.push(["business_name", body.businessName]);
   if (body.timezone !== undefined) pairs.push(["timezone", body.timezone]);
   if (body.roundingStep !== undefined) pairs.push(["rounding_step", String(body.roundingStep)]);
+  if (body.roundingMode !== undefined) pairs.push(["rounding_mode", body.roundingMode]);
   if (body.currency !== undefined) pairs.push(["currency", body.currency]);
 
   if (pairs.length) {

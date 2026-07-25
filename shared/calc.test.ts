@@ -6,9 +6,12 @@ import {
   computeRounding,
   lineItemWage,
   netPayable,
+  roundPayable,
   suggestFromBalance,
+  suggestSettlement,
   sumLineItemWages,
   ZERO_ADJUSTMENTS,
+  ZERO_BALANCE,
 } from "./calc";
 import { formatINR, parseRupeeInput, roundPaiseTo, toPaise } from "./money";
 import {
@@ -356,6 +359,222 @@ describe("rounding helper", () => {
     const result = computeRounding(200000, ZERO_ADJUSTMENTS, 100, "up");
     expect(result.credit).toBe(0);
     expect(result.debit).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// paise handling — nobody hands over 56 paise
+// ---------------------------------------------------------------------------
+
+describe("roundPayable", () => {
+  it("resolves paise to the nearest rupee", () => {
+    expect(roundPayable(210956, 1, "down")).toBe(211000); // ₹2,109.56 -> ₹2,110
+    expect(roundPayable(210940, 1, "down")).toBe(210900); // ₹2,109.40 -> ₹2,109
+    expect(roundPayable(210950, 1, "nearest")).toBe(211000); // exact half rounds up
+  });
+
+  it("clears the paise before applying a larger step", () => {
+    // ₹2,109.56 -> ₹2,110 -> floor to ₹100 -> ₹2,100
+    expect(roundPayable(210956, 100, "down")).toBe(210000);
+    expect(roundPayable(210956, 100, "up")).toBe(220000);
+    expect(roundPayable(210956, 10, "down")).toBe(211000);
+  });
+
+  it("never rounds a payment down to nothing", () => {
+    // ₹21 floored to the nearest ₹100 would be ₹0 — pay nothing and still owe
+    // ₹21. The whole-rupee figure stands instead.
+    expect(roundPayable(2100, 100, "down")).toBe(2100);
+    expect(roundPayable(2156, 100, "down")).toBe(2200); // ₹21.56 -> ₹22
+  });
+});
+
+// ---------------------------------------------------------------------------
+// the one-tap settlement proposal
+// ---------------------------------------------------------------------------
+
+describe("suggestSettlement", () => {
+  const step = 100;
+
+  it("offers to pay back what you owe the worker", () => {
+    // "if I owe 21 rs to worker, it should automatically suggest to apply this"
+    const result = suggestSettlement({
+      wage: 200000, // ₹2,000
+      opening: { creditOutstanding: 0, debitOutstanding: 2100 }, // you owe ₹21
+      step: 1,
+      mode: "hold",
+    });
+    expect(result.addback).toBe(2100);
+    expect(result.settled).toBe(202100); // ₹2,021
+    expect(result.netPayable).toBe(202100);
+    expect(result.carriedDebit).toBe(0); // fully repaid
+  });
+
+  it("settles the carry-forward first, then rounds", () => {
+    // You owe ₹21; wage ₹2,000 -> ₹2,021 -> hold back to ₹2,000, carrying ₹21.
+    const result = suggestSettlement({
+      wage: 200000,
+      opening: { creditOutstanding: 0, debitOutstanding: 2100 },
+      step,
+      mode: "hold",
+    });
+    expect(result.addback).toBe(2100);
+    expect(result.debit).toBe(2100);
+    expect(result.credit).toBe(0);
+    expect(result.netPayable).toBe(200000);
+    // The old debit was repaid and an equal one taken back on — still ₹21 owed.
+    expect(result.carriedDebit).toBe(2100);
+  });
+
+  it("prefers holding money back over paying extra", () => {
+    const result = suggestSettlement({
+      wage: 210956, // ₹2,109.56
+      opening: ZERO_BALANCE,
+      step,
+      mode: "hold",
+    });
+    expect(result.credit).toBe(0); // never fronts money
+    // ₹2,109.56 -> ₹2,110 -> floor to ₹100 -> ₹2,100, holding ₹9.56 back
+    expect(result.debit).toBe(956);
+    expect(result.netPayable).toBe(210000);
+    expect(result.carriedDebit).toBe(956);
+  });
+
+  it("still allows paying extra when asked", () => {
+    const result = suggestSettlement({
+      wage: 210956,
+      opening: ZERO_BALANCE,
+      step,
+      mode: "give",
+    });
+    expect(result.debit).toBe(0);
+    expect(result.credit).toBe(9044); // ₹90.44 extra
+    expect(result.netPayable).toBe(220000);
+  });
+
+  it("just clears the paise at a ₹1 step", () => {
+    expect(
+      suggestSettlement({ wage: 210956, opening: ZERO_BALANCE, step: 1, mode: "hold" })
+        .netPayable,
+    ).toBe(211000); // ₹2,110
+    expect(
+      suggestSettlement({ wage: 210940, opening: ZERO_BALANCE, step: 1, mode: "hold" })
+        .netPayable,
+    ).toBe(210900); // ₹2,109
+  });
+
+  it("recovers an outstanding credit from this week's wage", () => {
+    const result = suggestSettlement({
+      wage: 200000,
+      opening: { creditOutstanding: 8500, debitOutstanding: 0 }, // owes you ₹85
+      step: 1,
+      mode: "hold",
+    });
+    expect(result.deduct).toBe(8500);
+    expect(result.remainingCredit).toBe(0);
+    expect(result.netPayable).toBe(191500); // ₹1,915
+  });
+
+  it("never claws back more than the worker earned this week", () => {
+    // Owes ₹500 but only earned ₹300 — recover ₹300, leave ₹200 outstanding.
+    const result = suggestSettlement({
+      wage: 30000,
+      opening: { creditOutstanding: 50000, debitOutstanding: 0 },
+      step: 1,
+      mode: "hold",
+    });
+    expect(result.deduct).toBe(30000);
+    expect(result.remainingCredit).toBe(20000);
+    expect(result.netPayable).toBe(0);
+    expect(netPayable(30000, result)).toBe(0); // never negative
+  });
+
+  it("recovers nothing from a week with no work", () => {
+    const result = suggestSettlement({
+      wage: 0,
+      opening: { creditOutstanding: 8500, debitOutstanding: 0 },
+      step,
+      mode: "hold",
+    });
+    expect(result.deduct).toBe(0);
+    expect(result.remainingCredit).toBe(8500);
+    expect(result.netPayable).toBe(0);
+  });
+
+  it("does not round a small payment away to nothing", () => {
+    // Wage ₹0, you owe ₹21 — flooring to ₹100 would pay nothing and still owe.
+    const result = suggestSettlement({
+      wage: 0,
+      opening: { creditOutstanding: 0, debitOutstanding: 2100 },
+      step,
+      mode: "hold",
+    });
+    expect(result.netPayable).toBe(2100);
+    expect(result.debit).toBe(0);
+  });
+
+  it("handles owing and being owed at the same time", () => {
+    const result = suggestSettlement({
+      wage: 200000,
+      opening: { creditOutstanding: 5000, debitOutstanding: 2100 },
+      step: 1,
+      mode: "hold",
+    });
+    expect(result.deduct).toBe(5000); // recover ₹50
+    expect(result.addback).toBe(2100); // repay ₹21
+    expect(result.netPayable).toBe(197100); // ₹1,971
+    expect(result.remainingCredit).toBe(0);
+    expect(result.carriedDebit).toBe(0);
+  });
+
+  it("agrees with netPayable on the figures it proposes", () => {
+    const result = suggestSettlement({
+      wage: 210956,
+      opening: { creditOutstanding: 5000, debitOutstanding: 2100 },
+      step,
+      mode: "hold",
+    });
+    expect(netPayable(210956, result)).toBe(result.netPayable);
+  });
+
+  it("reports a no-op when the adjustments already match", () => {
+    const opening = { creditOutstanding: 8500, debitOutstanding: 0 };
+    const first = suggestSettlement({ wage: 200000, opening, step, mode: "hold" });
+    const second = suggestSettlement({
+      wage: 200000,
+      opening,
+      step,
+      mode: "hold",
+      current: first,
+    });
+    expect(second.isNoop).toBe(true);
+  });
+
+  it("settles fully over two weeks when holding back", () => {
+    // Week N: wage ₹2,109.56, hand over ₹2,100, hold ₹9.56.
+    const weekN = suggestSettlement({
+      wage: 210956,
+      opening: ZERO_BALANCE,
+      step,
+      mode: "hold",
+    });
+    expect(weekN.netPayable).toBe(210000);
+
+    const afterN = applyToBalance(ZERO_BALANCE, weekN);
+    expect(afterN.debitOutstanding).toBe(956); // you owe ₹9.56
+
+    // Week N+1: that ₹9.56 is repaid on top of the new wage.
+    const weekNext = suggestSettlement({
+      wage: 200000,
+      opening: afterN,
+      step,
+      mode: "hold",
+    });
+    expect(weekNext.addback).toBe(956);
+    expect(weekNext.settled).toBe(200956); // ₹2,009.56
+    expect(weekNext.netPayable).toBe(200000); // ₹2,010 -> floor ₹100 -> ₹2,000
+    // The old debt is cleared and a fresh ₹9.56 held back — the worker is never
+    // cumulatively short-changed, the balance just rolls.
+    expect(weekNext.carriedDebit).toBe(956);
   });
 });
 

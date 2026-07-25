@@ -216,6 +216,12 @@ export const api = {
     get: (weekStart: ISODate) => request<WeekResult>(`/weeks/${weekStart}`),
     setAdjustments: (weekStart: ISODate, workerId: number, body: AdjustmentInput) =>
       send<WeekResult>("PUT", `/weeks/${weekStart}/adjustments/${workerId}`, body),
+    /** Apply the settlement proposal — one worker, or everyone when omitted. */
+    settle: (weekStart: ISODate, workerId?: number) =>
+      send<WeekResult>(
+        "POST",
+        `/weeks/${weekStart}/settle${workerId ? `/${workerId}` : ""}`,
+      ),
     finalize: (weekStart: ISODate) =>
       send<WeekResult>("POST", `/weeks/${weekStart}/finalize`),
     reopen: (weekStart: ISODate) => send<WeekResult>("POST", `/weeks/${weekStart}/reopen`),

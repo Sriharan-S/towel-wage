@@ -22,6 +22,12 @@ import {
 } from "@/components/ui";
 import { useBootstrap, useUpdateSettings } from "@/lib/queries";
 import { api } from "@/lib/api";
+import {
+  ROUNDING_MODES,
+  ROUNDING_MODE_HELP,
+  ROUNDING_MODE_LABELS,
+  type RoundingMode,
+} from "@shared/types";
 
 const TIMEZONES = [
   "Asia/Kolkata",
@@ -32,7 +38,7 @@ const TIMEZONES = [
   "UTC",
 ];
 
-const ROUNDING_STEPS = [1, 5, 10, 50, 100];
+const ROUNDING_STEPS = [1, 5, 10, 20, 50, 100];
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -141,8 +147,8 @@ export default function Settings() {
             </Field>
 
             <Field
-              label="Default rounding step"
-              hint="The step the Wages screen suggests when rounding a payment up or down."
+              label="Round payments to"
+              hint="Paise are always cleared to the nearest rupee first, whatever you pick here."
             >
               <Select
                 value={String(settings.roundingStep)}
@@ -150,7 +156,23 @@ export default function Settings() {
               >
                 {ROUNDING_STEPS.map((step) => (
                   <option key={step} value={step}>
-                    ₹{step}
+                    {step === 1 ? "₹1 — just clear the paise" : `₹${step}`}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <Field
+              label="When it isn't a round figure"
+              hint={ROUNDING_MODE_HELP[settings.roundingMode]}
+            >
+              <Select
+                value={settings.roundingMode}
+                onChange={(e) => save({ roundingMode: e.target.value as RoundingMode })}
+              >
+                {ROUNDING_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {ROUNDING_MODE_LABELS[mode]}
                   </option>
                 ))}
               </Select>

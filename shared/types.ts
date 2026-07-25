@@ -157,6 +157,8 @@ export interface WorkerWeekResult {
   closingBalance: Balance;
   /** what the app proposes for deduct / addback based on openingBalance */
   suggested: { deduct: number; addback: number };
+  /** the one-tap proposal: settle the carry-forward, then round */
+  settlement: Settlement;
   paidAt: string | null;
   note: string | null;
 }
@@ -178,10 +180,63 @@ export interface WeekResult {
   };
 }
 
+/**
+ * Which way to round when the payment doesn't land on a clean figure.
+ *
+ * hold    — round DOWN, keeping the difference as a debit you carry forward.
+ *           You never front money out of pocket. The default.
+ * nearest — round to whichever clean figure is closer.
+ * give    — round UP, handing over the difference as a credit to recover later.
+ */
+export type RoundingMode = "hold" | "nearest" | "give";
+
+export const ROUNDING_MODES: RoundingMode[] = ["hold", "nearest", "give"];
+
+export const ROUNDING_MODE_LABELS: Record<RoundingMode, string> = {
+  hold: "Hold back",
+  nearest: "Nearest",
+  give: "Give extra",
+};
+
+export const ROUNDING_MODE_HELP: Record<RoundingMode, string> = {
+  hold: "Pay the round figure below and carry the difference forward as money you owe them. You never pay extra out of pocket.",
+  nearest: "Pay whichever round figure is closer, whether that is slightly more or slightly less.",
+  give: "Pay the round figure above and recover the difference from next week's wage.",
+};
+
+/**
+ * A complete proposed payment for one worker in one week: settle what is
+ * carried forward, then round. See suggestSettlement() in calc.ts.
+ */
+export interface Settlement {
+  /** recovering an earlier credit, capped at what they earned this week */
+  deduct: number;
+  /** repaying an earlier debit */
+  addback: number;
+  /** rounding up (only when the mode allows it) */
+  credit: number;
+  /** rounding down — money held back for next week */
+  debit: number;
+  /** the round figure actually handed over */
+  netPayable: number;
+  /** wage − deduct + addback, before rounding */
+  settled: number;
+  /** outstanding credit that this week's wage could not cover */
+  remainingCredit: number;
+  /** what you will owe the worker once this payment is made */
+  carriedDebit: number;
+  mode: RoundingMode;
+  /** rupees */
+  step: number;
+  /** true when the proposal changes nothing — already settled and round */
+  isNoop: boolean;
+}
+
 export interface Settings {
   businessName: string;
   timezone: string;
   roundingStep: number;
+  roundingMode: RoundingMode;
   currency: string;
 }
 

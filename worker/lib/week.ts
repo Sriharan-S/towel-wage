@@ -10,6 +10,7 @@ import {
   buildLineItems,
   netPayable,
   suggestFromBalance,
+  suggestSettlement,
   sumLineItemWages,
   totalQuantity,
   ZERO_ADJUSTMENTS,
@@ -27,6 +28,7 @@ import type {
   WorkerWeekResult,
 } from "@shared/types";
 import {
+  loadSettings,
   toEntry,
   toWeekAdjustment,
   toWorkType,
@@ -78,6 +80,9 @@ export async function computeWeek(
   const rates = (rateRes.results as unknown as WorkerRateRow[]).map(toWorkerRate);
   const entries = (entryRes.results as unknown as EntryRow[]).map(toEntry);
   const adjustments = (adjRes.results as unknown as WeekAdjustmentRow[]).map(toWeekAdjustment);
+
+  // The settlement proposal depends on the configured rounding preference.
+  const settings = await loadSettings(db);
 
   const weekMeta = weekRow.results[0] as { status?: string; finalized_at?: string } | undefined;
   const status: WeekStatus = weekMeta?.status === "finalized" ? "finalized" : "open";
@@ -156,6 +161,13 @@ export async function computeWeek(
       openingBalance: opening,
       closingBalance: applyToBalance(opening, adj),
       suggested: suggestFromBalance(opening),
+      settlement: suggestSettlement({
+        wage,
+        opening,
+        step: settings.roundingStep,
+        mode: settings.roundingMode,
+        current: adj,
+      }),
       paidAt: adjustmentRow?.paidAt ?? null,
       note: adjustmentRow?.note ?? null,
     });

@@ -109,12 +109,46 @@ Net payable = **wage + credit − deduct − debit + add-back**
 | **Debit** | Withheld to round the payment **down** (wage ₹2,010, you hand over ₹2,000 → debit ₹10). You now owe the worker this. |
 | **Add back** | Paid this week to settle an earlier debit. |
 
-The **Round the payment** buttons on the Wages screen fill Credit or Debit in for
-you: ↑ ₹100 on a ₹1,980 wage sets a ₹20 credit and shows ₹2,000 to pay.
+### Suggested payment — the one-tap settlement
 
-Outstanding balances carry forward on their own. The week after you give a credit,
-that worker's Deduct field shows a **"Apply ₹20"** chip — a suggestion, not a
-forced value, so you can confirm or change it.
+Rather than filling four fields by hand, each worker on the Wages screen shows a
+**suggested payment** that does the whole thing in the right order, and explains
+itself before you apply it:
+
+> **Suggested payment ₹2,400.00**
+> - Wage earned this week: ₹2,528.75
+> - Take back the ₹85.00 they owed you
+> - That leaves ₹2,443.75
+> - Hand over the round ₹2,400.00 and hold ₹43.75 for next week
+>
+> *Carries forward: you will owe Nallamuthu ₹43.75.*
+
+The algorithm:
+
+1. **Recover what the worker owes you** — capped at what they earned this week.
+   Clawing ₹500 back from a ₹300 wage would mean handing over a negative amount;
+   the shortfall simply stays outstanding for next week.
+2. **Pay back what you owe them**, in full.
+3. **Clear the paise to the nearest rupee.** ₹2,109.56 → ₹2,110; ₹2,109.40 → ₹2,109.
+   Nobody hands over 56 paise.
+4. **Round to the chosen step**, preferring to **hold money back** rather than
+   front it. Rounding down leaves a debit that carries to next week and costs you
+   nothing; rounding up puts your own money on loan until you remember to claw it
+   back. Rounding up is still available — it's a preference, not a rule.
+
+One guard: rounding down never wipes a payment out. A ₹41 payment with a ₹100
+step would floor to ₹0 — pay nothing and still owe ₹41 — so the whole-rupee
+figure stands instead.
+
+**Settle all** in the header applies this to every worker at once, which is the
+normal Saturday routine. Re-running it changes nothing.
+
+Set the step and the preference in **Settings → Round payments to** and **When it
+isn't a round figure** (`Hold back` / `Nearest` / `Give extra`; default *Hold
+back*).
+
+The manual **↑/↓ ₹10 / ₹50 / ₹100** buttons and the four fields are still there
+for anything the suggestion doesn't cover.
 
 ### Finalizing a week
 
