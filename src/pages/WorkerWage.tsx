@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Check, HandCoins, Lock } from "lucide-react";
+import { ArrowLeft, Check, HandCoins, Lock, PencilLine } from "lucide-react";
 import { PageHeader } from "@/components/layout/AppShell";
 import { SettlementPlan } from "@/components/SettlementPlan";
 import {
@@ -15,7 +15,13 @@ import {
   useToast,
 } from "@/components/ui";
 import { useSetAdjustments, useSettleWeek, useToday, useWeek } from "@/lib/queries";
-import { formatWeekRange, relativeWeekLabel, weekStartOf } from "@shared/dates";
+import {
+  formatDayLabel,
+  formatWeekRange,
+  relativeWeekLabel,
+  weekDays,
+  weekStartOf,
+} from "@shared/dates";
 import { formatCount, formatINR, parseRupeeInput, toRupees } from "@shared/money";
 import { computeRounding, computeTargetPayment } from "@shared/calc";
 import type { Adjustments } from "@shared/types";
@@ -124,6 +130,30 @@ export default function WorkerWage() {
 
   const owedAdvance = worker.openingBalance.advanceOutstanding;
 
+  /**
+   * What this worker did on each day of the week.
+   *
+   * Counts exclude direct_sum lines, which record a rupee amount rather than a
+   * quantity. Earnings come from each line's per-day figures, so a rate change
+   * part-way through the week lands on the right days.
+   */
+  const dayRows = weekDays(weekStart).map((date) => ({
+    date,
+    isToday: date === today,
+    quantity: worker.lineItems.reduce(
+      (sum, item) => sum + (item.kind === "direct_sum" ? 0 : (item.daily[date] ?? 0)),
+      0,
+    ),
+    wage: worker.lineItems.reduce((sum, item) => sum + (item.dailyWage[date] ?? 0), 0),
+  }));
+
+  const daysWorked = dayRows.filter((d) => d.quantity > 0 || d.wage > 0).length;
+
+  // Lines paid on the week's total belong under the daily table, not in it.
+  const weeklyItems = worker.lineItems.filter(
+    (item) => item.kind === "formula_sum_ratio" && (item.wage > 0 || item.totalQuantity > 0),
+  );
+
   const commit = (field: Field) => {
     if (readOnly || parsed[field] === worker.adjustments[field]) return;
     setAdjustments.mutate(
@@ -193,9 +223,18 @@ export default function WorkerWage() {
           </span>
         }
         action={
-          <Button icon={<ArrowLeft size={13} />} onClick={back}>
-            All workers
-          </Button>
+          <>
+            <Button
+              icon={<PencilLine size={13} />}
+              onClick={() => navigate(`/entry/${weekStart}`)}
+              title="Open this week's daily entry, starting at the Sunday"
+            >
+              Jump to the week
+            </Button>
+            <Button icon={<ArrowLeft size={13} />} onClick={back}>
+              All workers
+            </Button>
+          </>
         }
       />
 
@@ -248,6 +287,75 @@ export default function WorkerWage() {
                 </div>
               ))
             )}
+          </Section>
+
+          {/* Day by day */}
+          <Section
+            title="Day by day"
+            meta={`${formatCount(dayRows.reduce((s, d) => s + d.quantity, 0))} pieces`}
+          >
+            <div
+              className="flex h-7 items-center gap-3 border-b px-3 text-[10px] font-medium uppercase tracking-wide ink-4"
+              style={{ borderColor: "var(--line)" }}
+            >
+              <span className="flex-1">Day</span>
+              <span className="w-20 text-right">Pieces</span>
+              <span className="w-24 text-right">Earned</span>
+            </div>
+
+            {dayRows.map((row) => (
+              <div
+                key={row.date}
+                className="flex items-center gap-3 border-b px-3 py-2 last:border-b-0"
+                style={{
+                  borderColor: "var(--line)",
+                  background: row.isToday ? "var(--accent-soft)" : undefined,
+                }}
+              >
+                <span className="min-w-0 flex-1 truncate text-xs">
+                  {formatDayLabel(row.date)}
+                  {row.isToday && <span className="ml-1.5 ink-3">today</span>}
+                </span>
+                <span className="w-20 text-right text-xs tnum">
+                  {row.quantity > 0 ? formatCount(row.quantity) : <span className="ink-4">—</span>}
+                </span>
+                <Money className="w-24 text-right text-xs font-medium">
+                  {row.wage > 0 ? formatINR(row.wage) : <span className="ink-4">—</span>}
+                </Money>
+              </div>
+            ))}
+
+            <div
+              className="flex items-center gap-3 border-t px-3 py-2 text-xs font-semibold"
+              style={{ background: "var(--panel-2)", borderColor: "var(--line-strong)" }}
+            >
+              <span className="flex-1">
+                {daysWorked} {daysWorked === 1 ? "day" : "days"} worked
+              </span>
+              <span className="w-20 text-right tnum">
+                {formatCount(dayRows.reduce((s, d) => s + d.quantity, 0))}
+              </span>
+              <Money className="w-24 text-right">
+                {formatINR(dayRows.reduce((s, d) => s + d.wage, 0))}
+              </Money>
+            </div>
+
+            {/* Anything paid on the week's total, not on any one day */}
+            {weeklyItems.map((item) => (
+              <div
+                key={item.workTypeId}
+                className="flex items-center gap-3 border-t px-3 py-1.5 text-[11px]"
+                style={{ borderColor: "var(--line)" }}
+              >
+                <span className="flex-1 ink-2">
+                  {item.name} — paid on the week's total
+                </span>
+                <span className="w-20 text-right tnum ink-3">
+                  {formatCount(item.totalQuantity)}
+                </span>
+                <Money className="w-24 text-right font-medium">{formatINR(item.wage)}</Money>
+              </div>
+            ))}
           </Section>
 
           {/* Advances */}

@@ -7,6 +7,7 @@ import {
   HandCoins,
   Lock,
   LockOpen,
+  PencilLine,
   Printer,
   Share2,
   Wallet,
@@ -102,6 +103,13 @@ export default function Week() {
         }
         action={
           <>
+            <Button
+              icon={<PencilLine size={13} />}
+              onClick={() => navigate(`/entry/${weekStart}`)}
+              title="Open this week's daily entry, starting at the Sunday"
+            >
+              Jump to the week
+            </Button>
             <Button icon={<Printer size={13} />} onClick={() => window.print()}>
               Print
             </Button>

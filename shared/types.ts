@@ -176,6 +176,14 @@ export interface LineItemResult {
   wage: number;
   /** value per day of the week, keyed by ISO date (summed across looms) */
   daily: Record<ISODate, number>;
+  /**
+   * What each day earned, keyed by ISO date, paise.
+   *
+   * Accumulated per entry at that entry's own rate, so it stays right when a
+   * price changes mid-week. Zero throughout for formula_sum_ratio, which is
+   * defined over the week's total and cannot honestly be split across days.
+   */
+  dailyWage: Record<ISODate, number>;
   daysWorked: number;
   /** how many looms this worker ran on this type during the week */
   looms: number;

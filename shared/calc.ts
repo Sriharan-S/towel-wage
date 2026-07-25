@@ -117,6 +117,7 @@ export function buildLineItems(params: {
       multiplier: rate?.multiplier ?? workType.defaultMultiplier,
       wage: 0,
       daily: Object.fromEntries(days.map((d) => [d, 0])),
+      dailyWage: Object.fromEntries(days.map((d) => [d, 0])),
       daysWorked: 0,
       looms: 1,
       loomTotals: [],
@@ -171,16 +172,18 @@ export function buildLineItems(params: {
     if (entry.kind === "direct_sum") {
       item.totalAmount += entry.amount;
       accruedWage.set(entry.workTypeId, (accruedWage.get(entry.workTypeId) ?? 0) + entry.amount);
+      item.dailyWage[entry.entryDate] =
+        (item.dailyWage[entry.entryDate] ?? 0) + entry.amount;
     } else {
       item.totalQuantity += entry.quantity;
       if (entry.kind === "count_x_price") {
         // Price this entry at ITS OWN snapshot, then add it in.
         ratesSeen.get(entry.workTypeId)!.add(entry.unitPrice);
-        accruedWage.set(
-          entry.workTypeId,
-          (accruedWage.get(entry.workTypeId) ?? 0) + Math.round(entry.quantity * entry.unitPrice),
-        );
+        const earned = Math.round(entry.quantity * entry.unitPrice);
+        accruedWage.set(entry.workTypeId, (accruedWage.get(entry.workTypeId) ?? 0) + earned);
+        item.dailyWage[entry.entryDate] = (item.dailyWage[entry.entryDate] ?? 0) + earned;
       } else {
+        // A weekly ratio has no honest per-day figure; dailyWage stays zero.
         ratesSeen.get(entry.workTypeId)!.add(entry.multiplier * 1e6 + entry.divisor);
       }
     }

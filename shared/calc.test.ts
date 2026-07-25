@@ -335,6 +335,55 @@ describe("buildLineItems", () => {
     expect(items[0].rateVaried).toBe(true);
   });
 
+  it("records what each day earned, at that day's own rate", () => {
+    const rates = [rate({ workTypeId: 1, unitPrice: 400 })];
+    const entries = [
+      entry({ entryDate: "2026-07-20", workTypeId: 1, kind: "count_x_price", quantity: 100, unitPrice: 370 }),
+      entry({ entryDate: "2026-07-22", workTypeId: 1, kind: "count_x_price", quantity: 100, unitPrice: 400 }),
+    ];
+
+    const items = buildLineItems({ weekStart: WEEK, entries, rates, workTypes: types });
+
+    expect(items[0].dailyWage["2026-07-20"]).toBe(37000); // 100 x ₹3.70
+    expect(items[0].dailyWage["2026-07-22"]).toBe(40000); // 100 x ₹4.00
+    expect(items[0].dailyWage["2026-07-21"]).toBe(0); // nothing recorded
+    // The days add up to the line's wage.
+    const summed = Object.values(items[0].dailyWage).reduce((a, b) => a + b, 0);
+    expect(summed).toBe(items[0].wage);
+  });
+
+  it("sums both looms into the same day's earnings", () => {
+    const rates = [rate({ workTypeId: 1, unitPrice: 370, looms: 2 })];
+    const entries = [
+      entry({ entryDate: "2026-07-20", workTypeId: 1, kind: "count_x_price", quantity: 60, unitPrice: 370, loom: 1 }),
+      entry({ entryDate: "2026-07-20", workTypeId: 1, kind: "count_x_price", quantity: 40, unitPrice: 370, loom: 2 }),
+    ];
+    const items = buildLineItems({ weekStart: WEEK, entries, rates, workTypes: types });
+    expect(items[0].dailyWage["2026-07-20"]).toBe(37000); // 100 x ₹3.70
+  });
+
+  it("leaves a weekly ratio out of the daily earnings", () => {
+    // (150 / 75) x ₹35 is defined over the week; splitting it across days would
+    // be inventing a figure.
+    const rates = [rate({ workTypeId: 3, divisor: 75, multiplier: 3500 })];
+    const entries = [50, 50, 50].map((quantity, i) =>
+      entry({
+        entryDate: addDays(WEEK, i + 1),
+        workTypeId: 3,
+        kind: "formula_sum_ratio",
+        quantity,
+        divisor: 75,
+        multiplier: 3500,
+      }),
+    );
+
+    const items = buildLineItems({ weekStart: WEEK, entries, rates, workTypes: types });
+    expect(items[0].wage).toBe(7000);
+    expect(Object.values(items[0].dailyWage).every((v) => v === 0)).toBe(true);
+    // The counts are still there day by day.
+    expect(items[0].daily["2026-07-20"]).toBe(50);
+  });
+
   it("does not flag a rate change when the price held steady", () => {
     const rates = [rate({ workTypeId: 1, unitPrice: 370 })];
     const entries = [
