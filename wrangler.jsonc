@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "towel-wage",
+  "main": "worker/index.ts",
+  "compatibility_date": "2025-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "./dist/client",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "towel-wage",
+      // Replaced with the real id by `wrangler d1 create towel-wage`.
+      "database_id": "REPLACE_WITH_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

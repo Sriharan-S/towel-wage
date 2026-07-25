@@ -1,0 +1,157 @@
+@import "tailwindcss";
+
+/*
+  Design tokens.
+
+  The app is used on a phone in a workshop, so the light theme is high-contrast
+  and the type is large. Dark mode follows the device setting.
+*/
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+
+  /* Indigo primary, warm neutrals — reads well under workshop lighting. */
+  --color-brand-50: #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-200: #c7d2fe;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  --color-brand-700: #4338ca;
+  --color-brand-800: #3730a3;
+  --color-brand-900: #312e81;
+
+  --color-money: #047857;
+  --color-money-dark: #34d399;
+}
+
+@layer base {
+  :root {
+    color-scheme: light dark;
+
+    --surface: #ffffff;
+    --surface-2: #f8fafc;
+    --surface-3: #f1f5f9;
+    --border: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --text: #0f172a;
+    --text-muted: #64748b;
+    --text-subtle: #94a3b8;
+    --accent: #4f46e5;
+    --accent-soft: #eef2ff;
+    --positive: #047857;
+    --positive-soft: #ecfdf5;
+    --negative: #be123c;
+    --negative-soft: #fff1f2;
+    --warning: #b45309;
+    --warning-soft: #fffbeb;
+    --ring: #6366f1;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface: #0f172a;
+      --surface-2: #1e293b;
+      --surface-3: #334155;
+      --border: #1e293b;
+      --border-strong: #475569;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-subtle: #64748b;
+      --accent: #818cf8;
+      --accent-soft: #1e1b4b;
+      --positive: #34d399;
+      --positive-soft: #022c22;
+      --negative: #fb7185;
+      --negative-soft: #4c0519;
+      --warning: #fbbf24;
+      --warning-soft: #451a03;
+      --ring: #818cf8;
+    }
+  }
+
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    /* Stop iOS zooming the page when a number field is focused. */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--surface-2);
+    color: var(--text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior-y: none;
+  }
+
+  /* Numbers should line up in columns, everywhere. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Hide the spinner arrows on number inputs — they are useless on a phone
+     and easy to hit by accident with a thumb. */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .surface {
+    background: var(--surface);
+  }
+  .surface-2 {
+    background: var(--surface-2);
+  }
+  .surface-3 {
+    background: var(--surface-3);
+  }
+  .text-muted {
+    color: var(--text-muted);
+  }
+  .text-subtle {
+    color: var(--text-subtle);
+  }
+  .safe-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+  }
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  /* Respect a user's reduced-motion preference across every animation. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+    color: #000;
+  }
+}

@@ -1,0 +1,437 @@
+import { describe, expect, it } from "vitest";
+import {
+  applyToBalance,
+  balanceBefore,
+  buildLineItems,
+  computeRounding,
+  lineItemWage,
+  netPayable,
+  suggestFromBalance,
+  sumLineItemWages,
+  ZERO_ADJUSTMENTS,
+} from "./calc";
+import { formatINR, parseRupeeInput, roundPaiseTo, toPaise } from "./money";
+import {
+  addDays,
+  formatWeekRange,
+  todayISO,
+  weekDays,
+  weekEndOf,
+  weekStartOf,
+} from "./dates";
+import type { Entry, WorkType, WorkerRate } from "./types";
+
+// ---------------------------------------------------------------------------
+// helpers
+// ---------------------------------------------------------------------------
+
+const WEEK = "2026-07-19"; // a Sunday
+
+function workType(over: Partial<WorkType> & Pick<WorkType, "id" | "name" | "kind">): WorkType {
+  return {
+    unitLabel: "towels",
+    defaultUnitPrice: 0,
+    defaultDivisor: 75,
+    defaultMultiplier: 3500,
+    color: "#000",
+    isActive: true,
+    sortOrder: 0,
+    ...over,
+  };
+}
+
+function rate(over: Partial<WorkerRate> & Pick<WorkerRate, "workTypeId">): WorkerRate {
+  return {
+    id: over.workTypeId,
+    workerId: 1,
+    unitPrice: 0,
+    divisor: 75,
+    multiplier: 3500,
+    isActive: true,
+    sortOrder: 0,
+    ...over,
+  };
+}
+
+function entry(over: Partial<Entry> & Pick<Entry, "entryDate" | "workTypeId" | "kind">): Entry {
+  return {
+    id: Math.random(),
+    weekStart: weekStartOf(over.entryDate),
+    workerId: 1,
+    quantity: 0,
+    amount: 0,
+    unitPrice: 0,
+    divisor: 75,
+    multiplier: 3500,
+    note: null,
+    ...over,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// money
+// ---------------------------------------------------------------------------
+
+describe("money", () => {
+  it("converts rupees to paise without float drift", () => {
+    expect(toPaise(3.7)).toBe(370);
+    expect(toPaise(3.65)).toBe(365);
+    expect(toPaise(2.3)).toBe(230);
+    expect(toPaise(1980)).toBe(198000);
+  });
+
+  it("survives repeated accumulation exactly", () => {
+    // The float version of this (0.1 + 0.2 style) drifts; paise must not.
+    let total = 0;
+    for (let i = 0; i < 1000; i++) total += toPaise(3.7);
+    expect(total).toBe(370000);
+    expect(formatINR(total)).toBe("₹3,700.00");
+  });
+
+  it("parses messy rupee input", () => {
+    expect(parseRupeeInput("₹1,980.50")).toBe(198050);
+    expect(parseRupeeInput("")).toBe(0);
+    expect(parseRupeeInput("20")).toBe(2000);
+  });
+
+  it("rounds to a step in the requested direction", () => {
+    expect(roundPaiseTo(198000, 100, "up")).toBe(200000);
+    expect(roundPaiseTo(201000, 100, "down")).toBe(200000);
+    expect(roundPaiseTo(200000, 100, "up")).toBe(200000);
+  });
+
+  it("leaves an amount alone when it already sits on the step", () => {
+    // ₹1,980 is already a multiple of ₹10, so a ₹10 step is a no-op. Only a
+    // ₹100 step moves it to ₹2,000.
+    expect(roundPaiseTo(198000, 10, "up")).toBe(198000);
+    expect(roundPaiseTo(198000, 50, "up")).toBe(200000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dates — Sunday-to-Saturday pay weeks, in the business timezone
+// ---------------------------------------------------------------------------
+
+describe("dates", () => {
+  it("anchors weeks on Sunday", () => {
+    expect(weekStartOf("2026-07-19")).toBe("2026-07-19"); // Sunday itself
+    expect(weekStartOf("2026-07-22")).toBe("2026-07-19"); // Wednesday
+    expect(weekStartOf("2026-07-25")).toBe("2026-07-19"); // Saturday
+    expect(weekStartOf("2026-07-26")).toBe("2026-07-26"); // next Sunday
+    expect(weekEndOf("2026-07-19")).toBe("2026-07-25");
+    expect(weekDays("2026-07-19")).toHaveLength(7);
+  });
+
+  it("uses the business timezone, not UTC, to decide 'today'", () => {
+    // 00:30 IST on 20 Jul is still 19:00 UTC on 19 Jul. A UTC-based app would
+    // file this entry under the wrong day — and, on a Sunday, the wrong week.
+    const lateNightIST = new Date("2026-07-19T19:00:00Z");
+    expect(todayISO("Asia/Kolkata", lateNightIST)).toBe("2026-07-20");
+    expect(todayISO("UTC", lateNightIST)).toBe("2026-07-19");
+  });
+
+  it("crosses month and year boundaries", () => {
+    expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
+    expect(weekStartOf("2027-01-01")).toBe("2026-12-27");
+    expect(formatWeekRange("2026-07-19")).toBe("19–25 Jul 2026");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// line item wages — the three kinds
+// ---------------------------------------------------------------------------
+
+describe("lineItemWage", () => {
+  it("multiplies count by price", () => {
+    // Nallamuthu: 500 Drill towels at ₹3.70
+    expect(
+      lineItemWage({
+        kind: "count_x_price",
+        totalQuantity: 500,
+        totalAmount: 0,
+        unitPrice: 370,
+        divisor: 75,
+        multiplier: 3500,
+      }),
+    ).toBe(185000); // ₹1,850.00
+  });
+
+  it("sums direct amounts", () => {
+    // Seerangam's Paavu: daily rupee amounts added up
+    expect(
+      lineItemWage({
+        kind: "direct_sum",
+        totalQuantity: 0,
+        totalAmount: 120000,
+        unitPrice: 0,
+        divisor: 75,
+        multiplier: 3500,
+      }),
+    ).toBe(120000);
+  });
+
+  it("applies the Kurai Cone ratio to the week's total, not per day", () => {
+    // 150 cones over the week => (150 / 75) x ₹35 = ₹70.00
+    expect(
+      lineItemWage({
+        kind: "formula_sum_ratio",
+        totalQuantity: 150,
+        totalAmount: 0,
+        unitPrice: 0,
+        divisor: 75,
+        multiplier: 3500,
+      }),
+    ).toBe(7000);
+  });
+
+  it("handles a partial ratio week", () => {
+    // 100 cones => (100 / 75) x ₹35 = ₹46.666… -> ₹46.67
+    expect(
+      lineItemWage({
+        kind: "formula_sum_ratio",
+        totalQuantity: 100,
+        totalAmount: 0,
+        unitPrice: 0,
+        divisor: 75,
+        multiplier: 3500,
+      }),
+    ).toBe(4667);
+  });
+
+  it("treats a zero divisor as unconfigured rather than dividing by zero", () => {
+    expect(
+      lineItemWage({
+        kind: "formula_sum_ratio",
+        totalQuantity: 150,
+        totalAmount: 0,
+        unitPrice: 0,
+        divisor: 0,
+        multiplier: 3500,
+      }),
+    ).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// weekly rollup
+// ---------------------------------------------------------------------------
+
+describe("buildLineItems", () => {
+  const types = new Map<number, WorkType>([
+    [1, workType({ id: 1, name: "Drill", kind: "count_x_price", defaultUnitPrice: 370 })],
+    [2, workType({ id: 2, name: "x30", kind: "count_x_price", defaultUnitPrice: 365 })],
+    [3, workType({ id: 3, name: "Kurai Cone", kind: "formula_sum_ratio" })],
+  ]);
+
+  it("rolls a week of daily counts into per-type wages", () => {
+    const rates = [
+      rate({ workTypeId: 1, unitPrice: 370, sortOrder: 1 }),
+      rate({ workTypeId: 2, unitPrice: 365, sortOrder: 2 }),
+    ];
+    const entries = [
+      entry({ entryDate: "2026-07-20", workTypeId: 1, kind: "count_x_price", quantity: 100, unitPrice: 370 }),
+      entry({ entryDate: "2026-07-21", workTypeId: 1, kind: "count_x_price", quantity: 120, unitPrice: 370 }),
+      entry({ entryDate: "2026-07-20", workTypeId: 2, kind: "count_x_price", quantity: 200, unitPrice: 365 }),
+    ];
+
+    const items = buildLineItems({ weekStart: WEEK, entries, rates, workTypes: types });
+
+    expect(items).toHaveLength(2);
+    expect(items[0].name).toBe("Drill");
+    expect(items[0].totalQuantity).toBe(220);
+    expect(items[0].wage).toBe(81400); // 220 x ₹3.70 = ₹814.00
+    expect(items[0].daysWorked).toBe(2);
+    expect(items[1].wage).toBe(73000); // 200 x ₹3.65 = ₹730.00
+    expect(sumLineItemWages(items)).toBe(154400); // ₹1,544.00
+  });
+
+  it("ignores entries outside the week", () => {
+    const rates = [rate({ workTypeId: 1, unitPrice: 370 })];
+    const entries = [
+      entry({ entryDate: "2026-07-20", workTypeId: 1, kind: "count_x_price", quantity: 100, unitPrice: 370 }),
+      // the following Sunday — belongs to the next pay week
+      entry({ entryDate: "2026-07-26", workTypeId: 1, kind: "count_x_price", quantity: 999, unitPrice: 370 }),
+    ];
+
+    const items = buildLineItems({ weekStart: WEEK, entries, rates, workTypes: types });
+    expect(items[0].totalQuantity).toBe(100);
+  });
+
+  it("keeps past weeks accurate when the price changes later", () => {
+    // The entry snapshotted ₹3.70. The worker's rate has since risen to ₹4.00.
+    const entries = [
+      entry({ entryDate: "2026-07-20", workTypeId: 1, kind: "count_x_price", quantity: 100, unitPrice: 370 }),
+    ];
+    const ratesAfterRaise = [rate({ workTypeId: 1, unitPrice: 400 })];
+
+    const items = buildLineItems({
+      weekStart: WEEK,
+      entries,
+      rates: ratesAfterRaise,
+      workTypes: types,
+    });
+
+    // Historical accuracy: the old week must still pay ₹370.00, not ₹400.00.
+    expect(items[0].unitPrice).toBe(370);
+    expect(items[0].wage).toBe(37000);
+  });
+
+  it("still pays a work type that was unassigned after the entries were made", () => {
+    const entries = [
+      entry({ entryDate: "2026-07-20", workTypeId: 2, kind: "count_x_price", quantity: 50, unitPrice: 365 }),
+    ];
+    // Worker is no longer assigned x30 at all.
+    const items = buildLineItems({ weekStart: WEEK, entries, rates: [], workTypes: types });
+    expect(items).toHaveLength(1);
+    expect(items[0].wage).toBe(18250);
+  });
+
+  it("sums Kurai Cone counts across the week before applying the ratio", () => {
+    const rates = [rate({ workTypeId: 3, divisor: 75, multiplier: 3500 })];
+    const entries = [50, 50, 50].map((quantity, i) =>
+      entry({
+        entryDate: addDays(WEEK, i + 1),
+        workTypeId: 3,
+        kind: "formula_sum_ratio",
+        quantity,
+        divisor: 75,
+        multiplier: 3500,
+      }),
+    );
+
+    const items = buildLineItems({ weekStart: WEEK, entries, rates, workTypes: types });
+    expect(items[0].totalQuantity).toBe(150);
+    expect(items[0].wage).toBe(7000); // ₹70.00, not 3 x (50/75 x 35)
+  });
+});
+
+// ---------------------------------------------------------------------------
+// adjustments, net payable and the carry-forward ledger
+// ---------------------------------------------------------------------------
+
+describe("net payable", () => {
+  it("rounds a payment up with a credit", () => {
+    // wage ₹1,980, hand over ₹2,000 -> credit ₹20
+    const adj = { ...ZERO_ADJUSTMENTS, credit: 2000 };
+    expect(netPayable(198000, adj)).toBe(200000);
+  });
+
+  it("rounds a payment down with a debit", () => {
+    // wage ₹2,010, hand over ₹2,000 -> debit ₹10
+    const adj = { ...ZERO_ADJUSTMENTS, debit: 1000 };
+    expect(netPayable(201000, adj)).toBe(200000);
+  });
+
+  it("applies all four adjustments together", () => {
+    const adj = { credit: 500, deduct: 2000, debit: 300, addback: 1000 };
+    // 200000 + 500 - 2000 - 300 + 1000
+    expect(netPayable(200000, adj)).toBe(199200);
+  });
+});
+
+describe("rounding helper", () => {
+  it("produces the credit that rounds ₹1,980 up to ₹2,000", () => {
+    const result = computeRounding(198000, ZERO_ADJUSTMENTS, 100, "up");
+    expect(result.credit).toBe(2000);
+    expect(result.debit).toBe(0);
+    expect(result.netPayable).toBe(200000);
+  });
+
+  it("produces the debit that rounds ₹2,010 down to ₹2,000", () => {
+    const result = computeRounding(201000, ZERO_ADJUSTMENTS, 100, "down");
+    expect(result.debit).toBe(1000);
+    expect(result.credit).toBe(0);
+    expect(result.netPayable).toBe(200000);
+  });
+
+  it("accounts for an already-applied deduct when choosing the rounding", () => {
+    // wage ₹1,990 less a ₹20 deduct = ₹1,970 -> round up to ₹2,000 needs ₹30
+    const adj = { ...ZERO_ADJUSTMENTS, deduct: 2000 };
+    const result = computeRounding(199000, adj, 100, "up");
+    expect(result.credit).toBe(3000);
+    expect(netPayable(199000, { ...adj, credit: result.credit })).toBe(200000);
+  });
+
+  it("does nothing when the amount is already round", () => {
+    const result = computeRounding(200000, ZERO_ADJUSTMENTS, 100, "up");
+    expect(result.credit).toBe(0);
+    expect(result.debit).toBe(0);
+  });
+});
+
+describe("carry-forward balance", () => {
+  it("turns this week's credit into next week's suggested deduct", () => {
+    const history = [
+      { weekStart: "2026-07-12", credit: 2000, deduct: 0, debit: 0, addback: 0 },
+    ];
+    const opening = balanceBefore(history, WEEK);
+    expect(opening.creditOutstanding).toBe(2000);
+    expect(suggestFromBalance(opening).deduct).toBe(2000);
+  });
+
+  it("turns this week's debit into next week's suggested add-back", () => {
+    const history = [
+      { weekStart: "2026-07-12", credit: 0, deduct: 0, debit: 1000, addback: 0 },
+    ];
+    const opening = balanceBefore(history, WEEK);
+    expect(opening.debitOutstanding).toBe(1000);
+    expect(suggestFromBalance(opening).addback).toBe(1000);
+  });
+
+  it("clears the balance once recovered, suggesting nothing further", () => {
+    const history = [
+      { weekStart: "2026-07-05", credit: 2000, deduct: 0, debit: 0, addback: 0 },
+      { weekStart: "2026-07-12", credit: 0, deduct: 2000, debit: 0, addback: 0 },
+    ];
+    const opening = balanceBefore(history, WEEK);
+    expect(opening.creditOutstanding).toBe(0);
+    expect(suggestFromBalance(opening)).toEqual({ deduct: 0, addback: 0 });
+  });
+
+  it("accumulates unrecovered credits across several weeks", () => {
+    const history = [
+      { weekStart: "2026-06-28", credit: 2000, deduct: 0, debit: 0, addback: 0 },
+      { weekStart: "2026-07-05", credit: 1500, deduct: 0, debit: 0, addback: 0 },
+      { weekStart: "2026-07-12", credit: 0, deduct: 1000, debit: 0, addback: 0 },
+    ];
+    expect(balanceBefore(history, WEEK).creditOutstanding).toBe(2500);
+  });
+
+  it("excludes the current week and anything after it from the opening balance", () => {
+    const history = [
+      { weekStart: "2026-07-12", credit: 2000, deduct: 0, debit: 0, addback: 0 },
+      { weekStart: WEEK, credit: 9900, deduct: 0, debit: 0, addback: 0 },
+      { weekStart: "2026-07-26", credit: 8800, deduct: 0, debit: 0, addback: 0 },
+    ];
+    expect(balanceBefore(history, WEEK).creditOutstanding).toBe(2000);
+  });
+
+  it("tracks credit and debit as independent ledgers", () => {
+    let balance = applyToBalance(
+      { creditOutstanding: 0, debitOutstanding: 0 },
+      { credit: 2000, deduct: 0, debit: 1000, addback: 0 },
+    );
+    expect(balance).toEqual({ creditOutstanding: 2000, debitOutstanding: 1000 });
+
+    balance = applyToBalance(balance, { credit: 0, deduct: 2000, debit: 0, addback: 400 });
+    expect(balance).toEqual({ creditOutstanding: 0, debitOutstanding: 600 });
+  });
+
+  it("round up in week N then accept the suggestion in week N+1 nets out", () => {
+    // Week N: wage ₹1,980, paid ₹2,000.
+    const weekN = computeRounding(198000, ZERO_ADJUSTMENTS, 100, "up");
+    expect(netPayable(198000, { ...ZERO_ADJUSTMENTS, credit: weekN.credit })).toBe(200000);
+
+    // Week N+1: the ₹20 credit comes back as a suggested deduct.
+    const opening = balanceBefore(
+      [{ weekStart: WEEK, credit: weekN.credit, deduct: 0, debit: 0, addback: 0 }],
+      "2026-07-26",
+    );
+    const suggestion = suggestFromBalance(opening);
+    expect(suggestion.deduct).toBe(2000);
+
+    // Accepting it leaves the worker square.
+    const settled = applyToBalance(opening, { ...ZERO_ADJUSTMENTS, deduct: suggestion.deduct });
+    expect(settled.creditOutstanding).toBe(0);
+  });
+});
