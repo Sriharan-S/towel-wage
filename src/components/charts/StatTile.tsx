@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp, Minus } from "lucide-react";
-import { Card } from "@/components/ui";
+import { Panel } from "@/components/ui";
 
 /**
  * Stat tile: label, value, optional delta against a named period.
@@ -29,16 +29,16 @@ export function StatTile({
   const direction = !showDelta ? 0 : delta > 0.005 ? 1 : delta < -0.005 ? -1 : 0;
 
   return (
-    <Card className="p-3.5">
-      <p className="text-xs text-muted">{label}</p>
+    <Panel className="p-3.5">
+      <p className="text-xs ink-2">{label}</p>
       <p
         className="mt-1 text-2xl font-semibold leading-tight"
         style={{
           color:
             tone === "positive"
-              ? "var(--positive)"
+              ? "var(--pos)"
               : tone === "negative"
-                ? "var(--negative)"
+                ? "var(--neg)"
                 : undefined,
         }}
       >
@@ -51,10 +51,10 @@ export function StatTile({
             style={{
               color:
                 direction === 0
-                  ? "var(--text-muted)"
+                  ? "var(--ink-2)"
                   : direction > 0
-                    ? "var(--positive)"
-                    : "var(--negative)",
+                    ? "var(--pos)"
+                    : "var(--neg)",
             }}
           >
             {direction > 0 ? (
@@ -66,10 +66,10 @@ export function StatTile({
             )}
             {Math.abs(delta * 100).toFixed(0)}%
           </span>
-          {deltaLabel && <span className="text-muted">{deltaLabel}</span>}
+          {deltaLabel && <span className="ink-2">{deltaLabel}</span>}
         </p>
       )}
-      {hint && !showDelta && <p className="mt-1 text-xs text-muted">{hint}</p>}
-    </Card>
+      {hint && !showDelta && <p className="mt-1 text-xs ink-2">{hint}</p>}
+    </Panel>
   );
 }

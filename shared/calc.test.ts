@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  advanceDelta,
   applyToBalance,
   balanceBefore,
   buildLineItems,
@@ -22,13 +23,23 @@ import {
   weekEndOf,
   weekStartOf,
 } from "./dates";
-import type { Entry, WorkType, WorkerRate } from "./types";
+import type { Balance, Entry, WorkType, WorkerRate } from "./types";
 
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 
 const WEEK = "2026-07-19"; // a Sunday
+
+/** A Balance carrying only the fields a given test cares about. */
+function balanceOf(over: Partial<Balance> = {}): Balance {
+  return { ...ZERO_BALANCE, ...over };
+}
+
+/** A week's adjustment row for the balance-history helpers. */
+function adj(over: Partial<typeof ZERO_ADJUSTMENTS> & { weekStart: string }) {
+  return { ...ZERO_ADJUSTMENTS, ...over };
+}
 
 function workType(over: Partial<WorkType> & Pick<WorkType, "id" | "name" | "kind">): WorkType {
   return {
@@ -50,6 +61,7 @@ function rate(over: Partial<WorkerRate> & Pick<WorkerRate, "workTypeId">): Worke
     unitPrice: 0,
     divisor: 75,
     multiplier: 3500,
+    looms: 1,
     isActive: true,
     sortOrder: 0,
     ...over,
@@ -61,6 +73,7 @@ function entry(over: Partial<Entry> & Pick<Entry, "entryDate" | "workTypeId" | "
     id: Math.random(),
     weekStart: weekStartOf(over.entryDate),
     workerId: 1,
+    loom: 1,
     quantity: 0,
     amount: 0,
     unitPrice: 0,
@@ -289,6 +302,59 @@ describe("buildLineItems", () => {
     expect(items[0].wage).toBe(18250);
   });
 
+  it("prices each day at its own rate when the price changes mid-week", () => {
+    // The price rose from ₹3.70 to ₹4.00 on Wednesday. Monday and Tuesday must
+    // still be paid at ₹3.70 — summing the week and multiplying once would
+    // silently reprice them at Wednesday's rate.
+    const rates = [rate({ workTypeId: 1, unitPrice: 400 })];
+    const entries = [
+      entry({ entryDate: "2026-07-20", workTypeId: 1, kind: "count_x_price", quantity: 100, unitPrice: 370 }),
+      entry({ entryDate: "2026-07-21", workTypeId: 1, kind: "count_x_price", quantity: 100, unitPrice: 370 }),
+      entry({ entryDate: "2026-07-22", workTypeId: 1, kind: "count_x_price", quantity: 100, unitPrice: 400 }),
+    ];
+
+    const items = buildLineItems({ weekStart: WEEK, entries, rates, workTypes: types });
+
+    expect(items[0].totalQuantity).toBe(300);
+    // 100x3.70 + 100x3.70 + 100x4.00 = 370 + 370 + 400 = ₹1,140
+    expect(items[0].wage).toBe(114000);
+    expect(items[0].wage).not.toBe(120000); // not all at the new rate
+    expect(items[0].wage).not.toBe(111000); // not all at the old rate
+    expect(items[0].rateVaried).toBe(true);
+  });
+
+  it("does not flag a rate change when the price held steady", () => {
+    const rates = [rate({ workTypeId: 1, unitPrice: 370 })];
+    const entries = [
+      entry({ entryDate: "2026-07-20", workTypeId: 1, kind: "count_x_price", quantity: 100, unitPrice: 370 }),
+      entry({ entryDate: "2026-07-21", workTypeId: 1, kind: "count_x_price", quantity: 100, unitPrice: 370 }),
+    ];
+    const items = buildLineItems({ weekStart: WEEK, entries, rates, workTypes: types });
+    expect(items[0].rateVaried).toBe(false);
+    expect(items[0].wage).toBe(74000);
+  });
+
+  it("sums two looms of one towel type into a single wage, keeping both figures", () => {
+    const rates = [rate({ workTypeId: 1, unitPrice: 370, looms: 2 })];
+    const entries = [
+      entry({ entryDate: "2026-07-20", workTypeId: 1, kind: "count_x_price", quantity: 60, unitPrice: 370, loom: 1 }),
+      entry({ entryDate: "2026-07-20", workTypeId: 1, kind: "count_x_price", quantity: 40, unitPrice: 370, loom: 2 }),
+      entry({ entryDate: "2026-07-21", workTypeId: 1, kind: "count_x_price", quantity: 50, unitPrice: 370, loom: 1 }),
+      entry({ entryDate: "2026-07-21", workTypeId: 1, kind: "count_x_price", quantity: 50, unitPrice: 370, loom: 2 }),
+    ];
+
+    const items = buildLineItems({ weekStart: WEEK, entries, rates, workTypes: types });
+
+    expect(items[0].totalQuantity).toBe(200);
+    expect(items[0].wage).toBe(74000); // 200 x ₹3.70
+    expect(items[0].looms).toBe(2);
+    // The per-loom split survives for the record: 110 and 90.
+    expect(items[0].loomTotals).toEqual([110, 90]);
+    // Two looms on one day is still one day worked, and the day totals combine.
+    expect(items[0].daysWorked).toBe(2);
+    expect(items[0].daily["2026-07-20"]).toBe(100);
+  });
+
   it("sums Kurai Cone counts across the week before applying the ratio", () => {
     const rates = [rate({ workTypeId: 3, divisor: 75, multiplier: 3500 })];
     const entries = [50, 50, 50].map((quantity, i) =>
@@ -325,10 +391,21 @@ describe("net payable", () => {
     expect(netPayable(201000, adj)).toBe(200000);
   });
 
-  it("applies all four adjustments together", () => {
-    const adj = { credit: 500, deduct: 2000, debit: 300, addback: 1000 };
+  it("applies every adjustment together", () => {
+    const adjustments = {
+      ...ZERO_ADJUSTMENTS,
+      credit: 500,
+      deduct: 2000,
+      debit: 300,
+      addback: 1000,
+    };
     // 200000 + 500 - 2000 - 300 + 1000
-    expect(netPayable(200000, adj)).toBe(199200);
+    expect(netPayable(200000, adjustments)).toBe(199200);
+  });
+
+  it("takes an advance recovery off the payment", () => {
+    // wage ₹2,000 less a ₹500 advance recovery
+    expect(netPayable(200000, { ...ZERO_ADJUSTMENTS, advanceRecovered: 50000 })).toBe(150000);
   });
 });
 
@@ -399,7 +476,7 @@ describe("suggestSettlement", () => {
     // "if I owe 21 rs to worker, it should automatically suggest to apply this"
     const result = suggestSettlement({
       wage: 200000, // ₹2,000
-      opening: { creditOutstanding: 0, debitOutstanding: 2100 }, // you owe ₹21
+      opening: balanceOf({ debitOutstanding: 2100 }), // you owe ₹21
       step: 1,
       mode: "hold",
     });
@@ -413,7 +490,7 @@ describe("suggestSettlement", () => {
     // You owe ₹21; wage ₹2,000 -> ₹2,021 -> hold back to ₹2,000, carrying ₹21.
     const result = suggestSettlement({
       wage: 200000,
-      opening: { creditOutstanding: 0, debitOutstanding: 2100 },
+      opening: balanceOf({ debitOutstanding: 2100 }),
       step,
       mode: "hold",
     });
@@ -465,7 +542,7 @@ describe("suggestSettlement", () => {
   it("recovers an outstanding credit from this week's wage", () => {
     const result = suggestSettlement({
       wage: 200000,
-      opening: { creditOutstanding: 8500, debitOutstanding: 0 }, // owes you ₹85
+      opening: balanceOf({ creditOutstanding: 8500 }), // owes you ₹85
       step: 1,
       mode: "hold",
     });
@@ -478,7 +555,7 @@ describe("suggestSettlement", () => {
     // Owes ₹500 but only earned ₹300 — recover ₹300, leave ₹200 outstanding.
     const result = suggestSettlement({
       wage: 30000,
-      opening: { creditOutstanding: 50000, debitOutstanding: 0 },
+      opening: balanceOf({ creditOutstanding: 50000 }),
       step: 1,
       mode: "hold",
     });
@@ -491,7 +568,7 @@ describe("suggestSettlement", () => {
   it("recovers nothing from a week with no work", () => {
     const result = suggestSettlement({
       wage: 0,
-      opening: { creditOutstanding: 8500, debitOutstanding: 0 },
+      opening: balanceOf({ creditOutstanding: 8500 }),
       step,
       mode: "hold",
     });
@@ -504,7 +581,7 @@ describe("suggestSettlement", () => {
     // Wage ₹0, you owe ₹21 — flooring to ₹100 would pay nothing and still owe.
     const result = suggestSettlement({
       wage: 0,
-      opening: { creditOutstanding: 0, debitOutstanding: 2100 },
+      opening: balanceOf({ debitOutstanding: 2100 }),
       step,
       mode: "hold",
     });
@@ -515,7 +592,7 @@ describe("suggestSettlement", () => {
   it("handles owing and being owed at the same time", () => {
     const result = suggestSettlement({
       wage: 200000,
-      opening: { creditOutstanding: 5000, debitOutstanding: 2100 },
+      opening: balanceOf({ creditOutstanding: 5000, debitOutstanding: 2100 }),
       step: 1,
       mode: "hold",
     });
@@ -529,7 +606,7 @@ describe("suggestSettlement", () => {
   it("agrees with netPayable on the figures it proposes", () => {
     const result = suggestSettlement({
       wage: 210956,
-      opening: { creditOutstanding: 5000, debitOutstanding: 2100 },
+      opening: balanceOf({ creditOutstanding: 5000, debitOutstanding: 2100 }),
       step,
       mode: "hold",
     });
@@ -537,7 +614,7 @@ describe("suggestSettlement", () => {
   });
 
   it("reports a no-op when the adjustments already match", () => {
-    const opening = { creditOutstanding: 8500, debitOutstanding: 0 };
+    const opening = balanceOf({ creditOutstanding: 8500 });
     const first = suggestSettlement({ wage: 200000, opening, step, mode: "hold" });
     const second = suggestSettlement({
       wage: 200000,
@@ -578,10 +655,89 @@ describe("suggestSettlement", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// advances — money lent mid-week, and money handed back
+// ---------------------------------------------------------------------------
+
+describe("advances", () => {
+  it("nets advances against repayments", () => {
+    expect(
+      advanceDelta([
+        { kind: "advance", amount: 100000 }, // lent ₹1,000
+        { kind: "repayment", amount: 30000 }, // got ₹300 back
+      ]),
+    ).toBe(70000);
+  });
+
+  it("carries an unrecovered advance into the opening balance", () => {
+    const opening = balanceBefore([], WEEK, [
+      { weekStart: "2026-07-12", kind: "advance", amount: 100000 },
+    ]);
+    expect(opening.advanceOutstanding).toBe(100000);
+  });
+
+  it("excludes advances taken during the current week from the opening balance", () => {
+    const opening = balanceBefore([], WEEK, [
+      { weekStart: "2026-07-12", kind: "advance", amount: 100000 },
+      { weekStart: WEEK, kind: "advance", amount: 50000 },
+    ]);
+    expect(opening.advanceOutstanding).toBe(100000);
+  });
+
+  it("never recovers an advance automatically", () => {
+    // Deliberate: how much of a loan comes off a given week is a conversation,
+    // not arithmetic. The figure is surfaced, never pre-filled.
+    const result = suggestSettlement({
+      wage: 252875, // ₹2,528.75
+      opening: balanceOf({ advanceOutstanding: 100000 }), // owes ₹1,000
+      step: 100,
+      mode: "hold",
+    });
+    expect(result.advanceRecovered).toBe(0);
+    expect(result.netPayable).toBe(250000); // full wage, only rounded down
+    expect(result.advanceOutstanding).toBe(100000); // still flagged
+  });
+
+  it("rounds correctly around a recovery you typed in yourself", () => {
+    const result = suggestSettlement({
+      wage: 252875,
+      opening: balanceOf({ advanceOutstanding: 100000 }),
+      step: 100,
+      mode: "hold",
+      current: { ...ZERO_ADJUSTMENTS, advanceRecovered: 50000 }, // take ₹500 off
+    });
+    expect(result.advanceRecovered).toBe(50000);
+    expect(result.settled).toBe(202875); // ₹2,028.75
+    expect(result.netPayable).toBe(200000); // -> ₹2,029 -> floor ₹100 -> ₹2,000
+    expect(result.advanceOutstanding).toBe(50000); // ₹500 still owed
+    expect(netPayable(252875, result)).toBe(result.netPayable);
+  });
+
+  it("clears the advance once fully recovered", () => {
+    const after = applyToBalance(balanceOf({ advanceOutstanding: 100000 }), {
+      ...ZERO_ADJUSTMENTS,
+      advanceRecovered: 100000,
+    });
+    expect(after.advanceOutstanding).toBe(0);
+  });
+
+  it("treats a mid-week repayment as reducing what is owed", () => {
+    const after = applyToBalance(
+      ZERO_BALANCE,
+      ZERO_ADJUSTMENTS,
+      advanceDelta([
+        { kind: "advance", amount: 100000 },
+        { kind: "repayment", amount: 100000 },
+      ]),
+    );
+    expect(after.advanceOutstanding).toBe(0);
+  });
+});
+
 describe("carry-forward balance", () => {
   it("turns this week's credit into next week's suggested deduct", () => {
     const history = [
-      { weekStart: "2026-07-12", credit: 2000, deduct: 0, debit: 0, addback: 0 },
+      adj({ weekStart: "2026-07-12", credit: 2000 }),
     ];
     const opening = balanceBefore(history, WEEK);
     expect(opening.creditOutstanding).toBe(2000);
@@ -590,7 +746,7 @@ describe("carry-forward balance", () => {
 
   it("turns this week's debit into next week's suggested add-back", () => {
     const history = [
-      { weekStart: "2026-07-12", credit: 0, deduct: 0, debit: 1000, addback: 0 },
+      adj({ weekStart: "2026-07-12", debit: 1000 }),
     ];
     const opening = balanceBefore(history, WEEK);
     expect(opening.debitOutstanding).toBe(1000);
@@ -599,8 +755,8 @@ describe("carry-forward balance", () => {
 
   it("clears the balance once recovered, suggesting nothing further", () => {
     const history = [
-      { weekStart: "2026-07-05", credit: 2000, deduct: 0, debit: 0, addback: 0 },
-      { weekStart: "2026-07-12", credit: 0, deduct: 2000, debit: 0, addback: 0 },
+      adj({ weekStart: "2026-07-05", credit: 2000 }),
+      adj({ weekStart: "2026-07-12", deduct: 2000 }),
     ];
     const opening = balanceBefore(history, WEEK);
     expect(opening.creditOutstanding).toBe(0);
@@ -609,31 +765,38 @@ describe("carry-forward balance", () => {
 
   it("accumulates unrecovered credits across several weeks", () => {
     const history = [
-      { weekStart: "2026-06-28", credit: 2000, deduct: 0, debit: 0, addback: 0 },
-      { weekStart: "2026-07-05", credit: 1500, deduct: 0, debit: 0, addback: 0 },
-      { weekStart: "2026-07-12", credit: 0, deduct: 1000, debit: 0, addback: 0 },
+      adj({ weekStart: "2026-06-28", credit: 2000 }),
+      adj({ weekStart: "2026-07-05", credit: 1500 }),
+      adj({ weekStart: "2026-07-12", deduct: 1000 }),
     ];
     expect(balanceBefore(history, WEEK).creditOutstanding).toBe(2500);
   });
 
   it("excludes the current week and anything after it from the opening balance", () => {
     const history = [
-      { weekStart: "2026-07-12", credit: 2000, deduct: 0, debit: 0, addback: 0 },
-      { weekStart: WEEK, credit: 9900, deduct: 0, debit: 0, addback: 0 },
-      { weekStart: "2026-07-26", credit: 8800, deduct: 0, debit: 0, addback: 0 },
+      adj({ weekStart: "2026-07-12", credit: 2000 }),
+      adj({ weekStart: WEEK, credit: 9900 }),
+      adj({ weekStart: "2026-07-26", credit: 8800 }),
     ];
     expect(balanceBefore(history, WEEK).creditOutstanding).toBe(2000);
   });
 
   it("tracks credit and debit as independent ledgers", () => {
-    let balance = applyToBalance(
-      { creditOutstanding: 0, debitOutstanding: 0 },
-      { credit: 2000, deduct: 0, debit: 1000, addback: 0 },
+    let running = applyToBalance(ZERO_BALANCE, {
+      ...ZERO_ADJUSTMENTS,
+      credit: 2000,
+      debit: 1000,
+    });
+    expect(running).toEqual(
+      balanceOf({ creditOutstanding: 2000, debitOutstanding: 1000 }),
     );
-    expect(balance).toEqual({ creditOutstanding: 2000, debitOutstanding: 1000 });
 
-    balance = applyToBalance(balance, { credit: 0, deduct: 2000, debit: 0, addback: 400 });
-    expect(balance).toEqual({ creditOutstanding: 0, debitOutstanding: 600 });
+    running = applyToBalance(running, {
+      ...ZERO_ADJUSTMENTS,
+      deduct: 2000,
+      addback: 400,
+    });
+    expect(running).toEqual(balanceOf({ debitOutstanding: 600 }));
   });
 
   it("round up in week N then accept the suggestion in week N+1 nets out", () => {
@@ -643,7 +806,7 @@ describe("carry-forward balance", () => {
 
     // Week N+1: the ₹20 credit comes back as a suggested deduct.
     const opening = balanceBefore(
-      [{ weekStart: WEEK, credit: weekN.credit, deduct: 0, debit: 0, addback: 0 }],
+      [adj({ weekStart: WEEK, credit: weekN.credit })],
       "2026-07-26",
     );
     const suggestion = suggestFromBalance(opening);

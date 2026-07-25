@@ -30,62 +30,80 @@ export function SettlementPlan({
   if (settlement.isNoop) {
     return (
       <div
-        className="rounded-xl px-3 py-2.5 text-xs"
-        style={{ background: "var(--positive-soft)", color: "var(--positive)" }}
+        className="rounded border px-2.5 py-1.5 text-[11px]"
+        style={{
+          background: "var(--pos-soft)",
+          color: "var(--pos)",
+          borderColor: "var(--line)",
+        }}
       >
-        Already settled — {formatINR(settlement.netPayable)} to pay, nothing outstanding to
-        apply.
+        Settled — {formatINR(settlement.netPayable)} to pay, nothing left to apply.
       </div>
     );
   }
 
   return (
     <div
-      className={cx("rounded-xl border p-3", compact && "text-xs")}
-      style={{ background: "var(--accent-soft)", borderColor: "var(--accent)" }}
+      className={cx("rounded border p-2.5", compact && "text-[11px]")}
+      style={{ background: "var(--accent-soft)", borderColor: "var(--accent-line)" }}
     >
-      <div className="flex items-center gap-2">
-        <Wand2 size={15} style={{ color: "var(--accent)" }} />
-        <span className="text-sm font-semibold">Suggested payment</span>
-        <span className="ml-auto text-lg font-bold">{formatINR(settlement.netPayable)}</span>
+      <div className="flex items-baseline gap-2">
+        <Wand2 size={12} style={{ color: "var(--accent)" }} />
+        <span className="eyebrow" style={{ color: "var(--accent)" }}>
+          Suggested payment
+        </span>
+        <span className="tnum ml-auto text-base font-semibold">
+          {formatINR(settlement.netPayable)}
+        </span>
       </div>
 
-      <ol className="mt-2 space-y-1 text-xs">
+      <ol className="mt-1.5 space-y-0.5 text-[11px]">
         {steps.map((step, i) => (
-          <li key={i} className="flex gap-1.5">
-            <ArrowRight size={12} className="mt-0.5 shrink-0 opacity-50" />
+          <li key={i} className="flex gap-1">
+            <ArrowRight size={10} className="mt-1 shrink-0 opacity-40" />
             <span>{step}</span>
           </li>
         ))}
       </ol>
 
-      {(settlement.carriedDebit > 0 || settlement.remainingCredit > 0) && (
-        <p className="mt-2 border-t pt-2 text-xs" style={{ borderColor: "var(--accent)" }}>
-          {settlement.carriedDebit > 0 && (
+      {(settlement.carriedDebit > 0 ||
+        settlement.remainingCredit > 0 ||
+        settlement.advanceOutstanding > 0) && (
+        <p
+          className="mt-1.5 border-t pt-1.5 text-[11px]"
+          style={{ borderColor: "var(--accent-line)" }}
+        >
+          Carries forward:
+          {settlement.advanceOutstanding > 0 && (
             <>
-              Carries forward: you will owe {workerName}{" "}
-              <strong>{formatINR(settlement.carriedDebit)}</strong>.
+              {" "}
+              advance <strong>{formatINR(settlement.advanceOutstanding)}</strong>;
             </>
           )}
           {settlement.remainingCredit > 0 && (
             <>
-              {settlement.carriedDebit > 0 && " "}
-              {workerName} will still owe you{" "}
-              <strong>{formatINR(settlement.remainingCredit)}</strong>.
+              {" "}
+              {workerName} owes <strong>{formatINR(settlement.remainingCredit)}</strong>;
+            </>
+          )}
+          {settlement.carriedDebit > 0 && (
+            <>
+              {" "}
+              you owe <strong>{formatINR(settlement.carriedDebit)}</strong>.
             </>
           )}
         </p>
       )}
 
       <Button
-        className="mt-3 w-full"
+        className="mt-2 w-full"
         variant="primary"
         size="sm"
         onClick={onApply}
         loading={applying}
         disabled={disabled}
       >
-        Apply this
+        Apply
       </Button>
     </div>
   );
@@ -94,9 +112,13 @@ export function SettlementPlan({
 /** Turn the proposal's numbers into the sentences a bookkeeper would say. */
 function describe(s: Settlement): string[] {
   const steps: string[] = [];
-  const wage = s.settled + s.deduct - s.addback;
+  const wage = s.settled + s.deduct - s.addback + s.advanceRecovered;
 
   steps.push(`Wage earned this week: ${formatINR(wage)}`);
+
+  if (s.advanceRecovered > 0) {
+    steps.push(`Take back ${formatINR(s.advanceRecovered)} against their advance`);
+  }
 
   if (s.deduct > 0) {
     steps.push(
@@ -108,7 +130,7 @@ function describe(s: Settlement): string[] {
   if (s.addback > 0) {
     steps.push(`Pay back the ${formatINR(s.addback)} you owed them`);
   }
-  if (s.deduct > 0 || s.addback > 0) {
+  if (s.deduct > 0 || s.addback > 0 || s.advanceRecovered > 0) {
     steps.push(`That leaves ${formatINR(s.settled)}`);
   }
 

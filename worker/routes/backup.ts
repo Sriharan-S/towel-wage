@@ -16,6 +16,7 @@ const TABLES = [
   "entries",
   "weeks",
   "week_adjustments",
+  "advances",
   "settings",
 ] as const;
 

@@ -7,6 +7,8 @@
  */
 
 import type {
+  Advance,
+  AdvanceKind,
   Entry,
   RoundingMode,
   Settings,
@@ -48,6 +50,7 @@ export interface WorkerRateRow {
   unit_price: number;
   divisor: number;
   multiplier: number;
+  looms: number;
   is_active: number;
   sort_order: number;
 }
@@ -58,6 +61,7 @@ export interface EntryRow {
   week_start: string;
   worker_id: number;
   work_type_id: number;
+  loom: number;
   kind: string;
   quantity: number;
   amount: number;
@@ -67,6 +71,17 @@ export interface EntryRow {
   note: string | null;
 }
 
+export interface AdvanceRow {
+  id: number;
+  worker_id: number;
+  entry_date: string;
+  week_start: string;
+  kind: string;
+  amount: number;
+  note: string | null;
+  created_at: string;
+}
+
 export interface WeekAdjustmentRow {
   week_start: string;
   worker_id: number;
@@ -74,6 +89,7 @@ export interface WeekAdjustmentRow {
   deduct: number;
   debit: number;
   addback: number;
+  advance_recovered: number;
   wage: number | null;
   net_payable: number | null;
   paid_at: string | null;
@@ -109,8 +125,20 @@ export const toWorkerRate = (r: WorkerRateRow): WorkerRate => ({
   unitPrice: r.unit_price,
   divisor: r.divisor,
   multiplier: r.multiplier,
+  looms: Math.max(1, r.looms ?? 1),
   isActive: r.is_active === 1,
   sortOrder: r.sort_order,
+});
+
+export const toAdvance = (r: AdvanceRow): Advance => ({
+  id: r.id,
+  workerId: r.worker_id,
+  entryDate: r.entry_date,
+  weekStart: r.week_start,
+  kind: r.kind as AdvanceKind,
+  amount: r.amount,
+  note: r.note,
+  createdAt: r.created_at,
 });
 
 export const toEntry = (r: EntryRow): Entry => ({
@@ -119,6 +147,7 @@ export const toEntry = (r: EntryRow): Entry => ({
   weekStart: r.week_start,
   workerId: r.worker_id,
   workTypeId: r.work_type_id,
+  loom: Math.max(1, r.loom ?? 1),
   kind: r.kind as WorkKind,
   quantity: r.quantity,
   amount: r.amount,
@@ -135,6 +164,7 @@ export const toWeekAdjustment = (r: WeekAdjustmentRow): WeekAdjustmentRecord => 
   deduct: r.deduct,
   debit: r.debit,
   addback: r.addback,
+  advanceRecovered: r.advance_recovered ?? 0,
   wage: r.wage,
   netPayable: r.net_payable,
   paidAt: r.paid_at,

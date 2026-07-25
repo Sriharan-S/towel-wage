@@ -100,9 +100,9 @@ export function WageTrend({ stats }: { stats: DashboardStats }) {
             strokeLinejoin="round"
             strokeLinecap="round"
             fill="url(#wageFill)"
-            // >= 8px marker, with a 2px ring in the surface colour.
+            // >= 8px marker, with a 2px ring in the panel colour.
             dot={false}
-            activeDot={{ r: 4, fill: color, stroke: theme.surface, strokeWidth: 2 }}
+            activeDot={{ r: 4, fill: color, stroke: theme.panel, strokeWidth: 2 }}
           />
         </AreaChart>
       </ResponsiveContainer>

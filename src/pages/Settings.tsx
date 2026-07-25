@@ -11,8 +11,8 @@ import {
 import { PageBody, PageHeader } from "@/components/layout/AppShell";
 import {
   Button,
-  Card,
-  CardHeader,
+  Panel,
+  PanelHeader,
   ConfirmSheet,
   Field,
   Input,
@@ -85,7 +85,7 @@ export default function Settings() {
         {/* Shortcuts to the other management screens, which live behind
             "More" on a phone. */}
         <div className="grid grid-cols-2 gap-3">
-          <Card>
+          <Panel>
             <button
               className="flex w-full items-center gap-3 p-4 text-left"
               onClick={() => navigate("/workers")}
@@ -93,13 +93,13 @@ export default function Settings() {
               <Users size={20} style={{ color: "var(--accent)" }} />
               <div>
                 <p className="font-medium">Workers</p>
-                <p className="text-xs text-muted">
+                <p className="text-xs ink-2">
                   {bootstrap.data.workers.filter((w) => w.isActive).length} active
                 </p>
               </div>
             </button>
-          </Card>
-          <Card>
+          </Panel>
+          <Panel>
             <button
               className="flex w-full items-center gap-3 p-4 text-left"
               onClick={() => navigate("/types")}
@@ -107,16 +107,16 @@ export default function Settings() {
               <Layers size={20} style={{ color: "var(--accent)" }} />
               <div>
                 <p className="font-medium">Towel types</p>
-                <p className="text-xs text-muted">
+                <p className="text-xs ink-2">
                   {bootstrap.data.workTypes.filter((t) => t.isActive).length} active
                 </p>
               </div>
             </button>
-          </Card>
+          </Panel>
         </div>
 
-        <Card>
-          <CardHeader title="Business" />
+        <Panel>
+          <PanelHeader title="Business" />
           <div className="space-y-4 p-4">
             <Field label="Business name">
               <Input
@@ -178,12 +178,12 @@ export default function Settings() {
               </Select>
             </Field>
           </div>
-        </Card>
+        </Panel>
 
-        <Card>
-          <CardHeader
+        <Panel>
+          <PanelHeader
             title="Backup"
-            subtitle="Your data lives in Cloudflare D1. Download a copy whenever you want one."
+            meta="Stored in Cloudflare D1"
           />
           <div className="space-y-2 p-4">
             <Button
@@ -205,17 +205,17 @@ export default function Settings() {
               Download wages spreadsheet (CSV)
             </Button>
           </div>
-        </Card>
+        </Panel>
 
-        <Card style={{ borderColor: "var(--negative)" }}>
-          <CardHeader
+        <Panel style={{ borderColor: "var(--neg)" }}>
+          <PanelHeader
             title={
               <span className="flex items-center gap-2">
-                <AlertTriangle size={16} style={{ color: "var(--negative)" }} />
+                <AlertTriangle size={16} style={{ color: "var(--neg)" }} />
                 Restore
               </span>
             }
-            subtitle="Replaces everything currently stored with the contents of a backup file."
+            meta="Replaces everything currently stored"
           />
           <div className="p-4">
             <input
@@ -238,11 +238,11 @@ export default function Settings() {
               Restore from a backup file
             </Button>
           </div>
-        </Card>
+        </Panel>
 
-        <Card>
-          <CardHeader title="About" />
-          <div className="space-y-1 p-4 text-sm text-muted">
+        <Panel>
+          <PanelHeader title="About" />
+          <div className="space-y-1 p-4 text-sm ink-2">
             <p className="flex items-center gap-2">
               <Database size={14} /> Cloudflare Workers + D1
             </p>
@@ -251,7 +251,7 @@ export default function Settings() {
               changing a rate never rewrites a week you have already paid.
             </p>
           </div>
-        </Card>
+        </Panel>
       </PageBody>
 
       <ConfirmSheet

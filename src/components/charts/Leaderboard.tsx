@@ -45,7 +45,7 @@ export function Leaderboard({ stats }: { stats: DashboardStats }) {
     >
       <div className="space-y-2.5 px-3 pt-1">
         {rows.length === 0 && (
-          <p className="py-6 text-center text-sm text-muted">
+          <p className="py-6 text-center text-sm ink-2">
             Record today's counts and this fills in.
           </p>
         )}

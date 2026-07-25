@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, PencilLine } from "lucide-react";
 import { PageBody, PageHeader } from "@/components/layout/AppShell";
-import { Badge, Button, Card, EmptyState, ErrorState, Select, Spinner } from "@/components/ui";
+import { Badge, Button, Panel, EmptyState, ErrorState, Select, Spinner } from "@/components/ui";
 import { StatTile } from "@/components/charts/StatTile";
 import { WageTrend } from "@/components/charts/WageTrend";
 import { WagesByWorker } from "@/components/charts/WagesByWorker";
@@ -41,7 +41,7 @@ export default function Dashboard() {
     <>
       <PageHeader
         title={bootstrap.data?.settings.businessName ?? "Dashboard"}
-        subtitle={formatWeekRange(currentWeek)}
+        meta={formatWeekRange(currentWeek)}
         action={
           <Button size="sm" variant="primary" icon={<PencilLine size={15} />}>
             <Link to="/entry">Enter today</Link>
@@ -51,7 +51,7 @@ export default function Dashboard() {
 
       <PageBody className="space-y-4">
         {!hasData ? (
-          <Card>
+          <Panel>
             <EmptyState
               title="No wages recorded yet"
               description="Record a day of towel counts and this dashboard fills in — weekly trends, per-worker splits, busiest days and outstanding balances."
@@ -61,7 +61,7 @@ export default function Dashboard() {
                 </Button>
               }
             />
-          </Card>
+          </Panel>
         ) : (
           <>
             {/* Missing days are the thing most worth surfacing: a forgotten day
@@ -69,7 +69,7 @@ export default function Dashboard() {
             {kpis.missingDays.length > 0 && (
               <div
                 className="flex items-start gap-2 rounded-xl px-3 py-2.5 text-sm"
-                style={{ background: "var(--warning-soft)", color: "var(--warning)" }}
+                style={{ background: "var(--warn-soft)", color: "var(--warn)" }}
               >
                 <AlertTriangle size={16} className="mt-0.5 shrink-0" />
                 <p>
@@ -90,8 +90,8 @@ export default function Dashboard() {
             )}
 
             {/* Hero figure — exactly one per view. */}
-            <Card className="p-5">
-              <p className="text-sm text-muted">Wages this week</p>
+            <Panel className="p-5">
+              <p className="text-sm ink-2">Wages this week</p>
               <p className="mt-1 text-5xl font-semibold leading-none">
                 {formatINR(kpis.thisWeekWage, { decimals: false })}
               </p>
@@ -112,7 +112,7 @@ export default function Dashboard() {
                   Open wages
                 </Link>
               </div>
-            </Card>
+            </Panel>
 
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <StatTile
@@ -143,7 +143,7 @@ export default function Dashboard() {
             {/* The one filter row, above everything it scopes. */}
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold">Trends</h2>
-              <label className="flex items-center gap-2 text-xs text-muted">
+              <label className="flex items-center gap-2 text-xs ink-2">
                 Range
                 <Select
                   className="h-9 w-28 text-sm"
@@ -174,7 +174,7 @@ export default function Dashboard() {
               <Balances stats={stats.data} />
             </div>
 
-            <p className="pt-1 text-center text-xs text-muted">
+            <p className="pt-1 text-center text-xs ink-2">
               Week of {formatWeekRange(currentWeek)} · today is {formatDayLabel(today)}
             </p>
           </>

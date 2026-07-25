@@ -1,4 +1,6 @@
 import type {
+  Advance,
+  AdvanceKind,
   Bootstrap,
   Entry,
   Settings,
@@ -134,6 +136,8 @@ export interface WorkerStats {
 export interface DayEntryInput {
   workerId: number;
   workTypeId: number;
+  /** 1-based loom number */
+  loom: number;
   quantity?: number;
   amount?: number;
   note?: string | null;
@@ -144,6 +148,7 @@ export interface RateInput {
   unitPrice: number;
   divisor: number;
   multiplier: number;
+  looms: number;
   isActive?: boolean;
 }
 
@@ -152,8 +157,25 @@ export interface AdjustmentInput {
   deduct?: number;
   debit?: number;
   addback?: number;
+  advanceRecovered?: number;
   note?: string | null;
   paid?: boolean;
+}
+
+export interface AdvanceInput {
+  workerId: number;
+  entryDate: ISODate;
+  kind: AdvanceKind;
+  amount: number;
+  note?: string | null;
+}
+
+export interface AdvanceLedgerRow {
+  date: ISODate;
+  kind: "advance" | "repayment" | "recovered";
+  amount: number;
+  note: string | null;
+  running: number;
 }
 
 /** Soft-delete responses tell the caller the row was kept for history. */
@@ -231,6 +253,26 @@ export const api = {
     summary: (weeks = 12) => request<DashboardStats>(`/stats/summary?weeks=${weeks}`),
     worker: (workerId: number, weeks = 12) =>
       request<WorkerStats>(`/stats/worker/${workerId}?weeks=${weeks}`),
+  },
+
+  advances: {
+    list: (params: { workerId?: number; week?: ISODate } = {}) => {
+      const search = new URLSearchParams();
+      if (params.workerId) search.set("workerId", String(params.workerId));
+      if (params.week) search.set("week", params.week);
+      const qs = search.toString();
+      return request<Advance[]>(`/advances${qs ? `?${qs}` : ""}`);
+    },
+    outstanding: () =>
+      request<Array<{ workerId: number; outstanding: number }>>("/advances/outstanding"),
+    create: (body: AdvanceInput) => send<Advance>("POST", "/advances", body),
+    update: (id: number, body: Partial<AdvanceInput>) =>
+      send<Advance>("PATCH", `/advances/${id}`, body),
+    remove: (id: number) => send<{ deleted: true }>("DELETE", `/advances/${id}`),
+    ledger: (workerId: number) =>
+      request<{ workerId: number; outstanding: number; ledger: AdvanceLedgerRow[] }>(
+        `/advances/worker/${workerId}/ledger`,
+      ),
   },
 
   settings: {

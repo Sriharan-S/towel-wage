@@ -117,6 +117,38 @@ export function useSetAdjustments(weekStart: ISODate) {
   });
 }
 
+export function useAdvances(params: { workerId?: number; week?: ISODate } = {}) {
+  return useQuery({
+    queryKey: ["advances", params],
+    queryFn: () => api.advances.list(params),
+  });
+}
+
+export function useAdvanceLedger(workerId: number) {
+  return useQuery({
+    queryKey: ["advances", "ledger", workerId],
+    queryFn: () => api.advances.ledger(workerId),
+    enabled: workerId > 0,
+  });
+}
+
+/** An advance changes the week's payout picture, so refresh the week too. */
+function useAdvanceMutation<TArgs, TResult>(fn: (args: TArgs) => Promise<TResult>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["advances"] });
+      client.invalidateQueries({ queryKey: ["week"] });
+      client.invalidateQueries({ queryKey: ["weeks"] });
+      client.invalidateQueries({ queryKey: ["stats"] });
+    },
+  });
+}
+
+export const useCreateAdvance = () => useAdvanceMutation(api.advances.create);
+export const useDeleteAdvance = () => useAdvanceMutation(api.advances.remove);
+
 export function useSettleWeek(weekStart: ISODate) {
   const client = useQueryClient();
   return useMutation({

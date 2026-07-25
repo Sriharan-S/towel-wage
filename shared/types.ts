@@ -66,8 +66,31 @@ export interface WorkerRate {
   divisor: number;
   /** paise */
   multiplier: number;
+  /** how many looms this worker runs on this type — input boxes on entry */
+  looms: number;
   isActive: boolean;
   sortOrder: number;
+}
+
+/**
+ * Money handed to a worker outside the weekly wage, and money they hand back.
+ *
+ * Separate from the credit/debit rounding ledger on purpose: a ₹1,000 loan on a
+ * Tuesday and a ₹20 rounding credit are different kinds of thing, and mixing
+ * them would make both harder to read on the payout sheet.
+ */
+export type AdvanceKind = "advance" | "repayment";
+
+export interface Advance {
+  id: number;
+  workerId: number;
+  entryDate: ISODate;
+  weekStart: ISODate;
+  kind: AdvanceKind;
+  /** always positive paise; `kind` carries the direction */
+  amount: number;
+  note: string | null;
+  createdAt: string;
 }
 
 export interface Entry {
@@ -76,6 +99,14 @@ export interface Entry {
   weekStart: ISODate;
   workerId: number;
   workTypeId: number;
+  /**
+   * Which loom this figure came off, 1-based.
+   *
+   * A worker can run the same towel type on more than one loom. The wage is
+   * calculated on the total, but the per-loom figures are recorded separately
+   * because that is how the work is actually counted and checked.
+   */
+  loom: number;
   /** snapshot of the work type's kind at entry time */
   kind: WorkKind;
   /** count, for count_x_price and formula_sum_ratio */
@@ -90,7 +121,7 @@ export interface Entry {
   note: string | null;
 }
 
-/** The four payment adjustments applied to one worker in one week. */
+/** The payment adjustments applied to one worker in one week. */
 export interface Adjustments {
   /** paid extra this week to round UP; the worker now owes you this */
   credit: number;
@@ -100,6 +131,8 @@ export interface Adjustments {
   debit: number;
   /** paid back this week to settle an earlier debit */
   addback: number;
+  /** taken off this week against an outstanding advance */
+  advanceRecovered: number;
 }
 
 export interface WeekAdjustmentRecord extends Adjustments {
@@ -118,6 +151,8 @@ export interface Balance {
   creditOutstanding: number;
   /** money you owe the worker (unpaid debits), paise */
   debitOutstanding: number;
+  /** money lent out and not yet recovered or repaid, paise */
+  advanceOutstanding: number;
 }
 
 /** One work type's contribution to a worker's weekly wage. */
@@ -137,9 +172,15 @@ export interface LineItemResult {
   multiplier: number;
   /** paise */
   wage: number;
-  /** value per day of the week, keyed by ISO date */
+  /** value per day of the week, keyed by ISO date (summed across looms) */
   daily: Record<ISODate, number>;
   daysWorked: number;
+  /** how many looms this worker ran on this type during the week */
+  looms: number;
+  /** the week's total per loom, index 0 = loom 1 — kept for the record */
+  loomTotals: number[];
+  /** true when the rate changed part-way through the week */
+  rateVaried: boolean;
 }
 
 export interface WorkerWeekResult {
@@ -159,6 +200,8 @@ export interface WorkerWeekResult {
   suggested: { deduct: number; addback: number };
   /** the one-tap proposal: settle the carry-forward, then round */
   settlement: Settlement;
+  /** advances given and repaid during this week, for the payout sheet */
+  advances: Advance[];
   paidAt: string | null;
   note: string | null;
 }
@@ -175,6 +218,7 @@ export interface WeekResult {
     deduct: number;
     debit: number;
     addback: number;
+    advanceRecovered: number;
     netPayable: number;
     quantity: number;
   };
@@ -217,6 +261,8 @@ export interface Settlement {
   credit: number;
   /** rounding down — money held back for next week */
   debit: number;
+  /** echoed back from what you typed — never proposed automatically */
+  advanceRecovered: number;
   /** the round figure actually handed over */
   netPayable: number;
   /** wage − deduct + addback, before rounding */
@@ -225,6 +271,8 @@ export interface Settlement {
   remainingCredit: number;
   /** what you will owe the worker once this payment is made */
   carriedDebit: number;
+  /** advance still outstanding after whatever recovery was entered */
+  advanceOutstanding: number;
   mode: RoundingMode;
   /** rupees */
   step: number;

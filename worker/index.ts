@@ -27,6 +27,7 @@ import weeks from "./routes/weeks";
 import stats from "./routes/stats";
 import settings from "./routes/settings";
 import backup from "./routes/backup";
+import advances from "./routes/advances";
 
 const app = new Hono<AppEnv>();
 
@@ -58,6 +59,7 @@ app.route("/api/work-types", workTypes);
 app.route("/api/entries", entries);
 app.route("/api/weeks", weeks);
 app.route("/api/stats", stats);
+app.route("/api/advances", advances);
 app.route("/api/settings", settings);
 app.route("/api/backup", backup);
 

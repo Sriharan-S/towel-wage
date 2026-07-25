@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
  * Chart palette.
  *
  * These eight hues are a validated categorical set: run
- *   node scripts/validate_palette.js "<light hexes>" --mode light --surface "#ffffff"
- *   node scripts/validate_palette.js "<dark hexes>"  --mode dark  --surface "#0f172a"
+ *   node scripts/validate_palette.js "<light hexes>" --mode light --panel "#ffffff"
+ *   node scripts/validate_palette.js "<dark hexes>"  --mode dark  --panel "#0f172a"
  * and both pass the lightness band, chroma floor, colour-vision-deficiency
  * separation and normal-vision floor against this app's actual surfaces.
  *
@@ -56,7 +56,7 @@ export const DIVERGING = {
 
 export interface ChartTheme {
   isDark: boolean;
-  surface: string;
+  panel: string;
   grid: string;
   axis: string;
   textPrimary: string;
@@ -88,7 +88,7 @@ export function useChartTheme(): ChartTheme {
 
   return {
     isDark,
-    surface: isDark ? "#0f172a" : "#ffffff",
+    panel: isDark ? "#0f172a" : "#ffffff",
     grid: isDark ? "#1e293b" : "#e2e8f0",
     axis: isDark ? "#334155" : "#cbd5e1",
     textPrimary: isDark ? "#f1f5f9" : "#0f172a",

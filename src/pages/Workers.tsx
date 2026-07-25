@@ -5,13 +5,14 @@ import { PageBody, PageHeader } from "@/components/layout/AppShell";
 import {
   Badge,
   Button,
-  Card,
+  Panel,
   ConfirmSheet,
   EmptyState,
   Field,
   IconButton,
   Input,
   NumberInput,
+  Select,
   Sheet,
   Spinner,
   Switch,
@@ -55,7 +56,7 @@ export default function Workers() {
     <>
       <PageHeader
         title="Workers"
-        subtitle={`${workers.filter((w) => w.isActive).length} active`}
+        meta={`${workers.filter((w) => w.isActive).length} active`}
         action={
           <Button
             size="sm"
@@ -70,7 +71,7 @@ export default function Workers() {
 
       <PageBody className="space-y-3">
         {visible.length === 0 ? (
-          <Card>
+          <Panel>
             <EmptyState
               icon={<Users size={28} />}
               title="No workers yet"
@@ -81,10 +82,10 @@ export default function Workers() {
                 </Button>
               }
             />
-          </Card>
+          </Panel>
         ) : (
           visible.map((worker) => (
-            <Card key={worker.id} className="flex items-center gap-2 p-3">
+            <Panel key={worker.id} className="flex items-center gap-2 p-3">
               <button
                 className="min-w-0 flex-1 text-left"
                 onClick={() => navigate(`/workers/${worker.id}`)}
@@ -93,7 +94,7 @@ export default function Workers() {
                   <span className="truncate font-semibold">{worker.name}</span>
                   {!worker.isActive && <Badge>Inactive</Badge>}
                 </div>
-                <p className="mt-0.5 text-sm text-muted">
+                <p className="mt-0.5 text-sm ink-2">
                   {rateCount(worker.id) === 0
                     ? "No towel types assigned yet"
                     : `${rateCount(worker.id)} towel ${rateCount(worker.id) === 1 ? "type" : "types"}`}
@@ -107,7 +108,7 @@ export default function Workers() {
               <IconButton label="Edit worker" onClick={() => setEditing(worker)}>
                 <ChevronRight size={18} />
               </IconButton>
-            </Card>
+            </Panel>
           ))
         )}
 
@@ -256,7 +257,7 @@ function WorkerSheet({
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium">Active</p>
-              <p className="text-xs text-muted">
+              <p className="text-xs ink-2">
                 Inactive workers are hidden from daily entry but keep their history.
               </p>
             </div>
@@ -295,8 +296,9 @@ function AssignRatesSheet({ worker, onClose }: { worker: Worker; onClose: () => 
           unitPrice: r.unitPrice,
           divisor: r.divisor,
           multiplier: r.multiplier,
+          looms: r.looms,
           isActive: r.isActive,
-        },
+        } satisfies RateInput,
       ]),
     ),
   );
@@ -315,8 +317,9 @@ function AssignRatesSheet({ worker, onClose }: { worker: Worker; onClose: () => 
           unitPrice: type.defaultUnitPrice,
           divisor: type.defaultDivisor,
           multiplier: type.defaultMultiplier,
+          looms: 1,
           isActive: true,
-        },
+        } satisfies RateInput,
       };
     });
   };
@@ -368,7 +371,7 @@ function AssignRatesSheet({ worker, onClose }: { worker: Worker; onClose: () => 
             <div
               key={type.id}
               className="rounded-xl border p-3"
-              style={{ background: assigned ? "var(--surface)" : "var(--surface-2)" }}
+              style={{ background: assigned ? "var(--panel)" : "var(--panel-2)" }}
             >
               <label className="flex cursor-pointer items-center gap-3">
                 <input
@@ -383,12 +386,12 @@ function AssignRatesSheet({ worker, onClose }: { worker: Worker; onClose: () => 
                 />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{type.name}</span>
-                  <span className="block text-xs text-muted">{WORK_KIND_HELP[type.kind]}</span>
+                  <span className="block text-xs ink-2">{WORK_KIND_HELP[type.kind]}</span>
                 </span>
               </label>
 
               {assigned && type.kind === "count_x_price" && (
-                <div className="mt-3 pl-8">
+                <div className="mt-3 grid grid-cols-2 gap-3 pl-8">
                   <Field label="Price per piece">
                     <NumberInput
                       value={assigned.unitPrice === 0 ? "" : String(toRupees(assigned.unitPrice))}
@@ -397,6 +400,21 @@ function AssignRatesSheet({ worker, onClose }: { worker: Worker; onClose: () => 
                         patch(type.id, { unitPrice: parseRupeeInput(e.target.value) })
                       }
                     />
+                  </Field>
+                  <Field
+                    label="Looms"
+                    hint="Input boxes shown on the entry screen. You can still add one on the day."
+                  >
+                    <Select
+                      value={String(assigned.looms)}
+                      onChange={(e) => patch(type.id, { looms: Number(e.target.value) })}
+                    >
+                      {[1, 2, 3, 4, 5, 6].map((n) => (
+                        <option key={n} value={n}>
+                          {n} {n === 1 ? "loom" : "looms"}
+                        </option>
+                      ))}
+                    </Select>
                   </Field>
                 </div>
               )}
@@ -419,7 +437,7 @@ function AssignRatesSheet({ worker, onClose }: { worker: Worker; onClose: () => 
                       }
                     />
                   </Field>
-                  <p className="col-span-2 -mt-1 text-xs text-muted">
+                  <p className="col-span-2 -mt-1 text-xs ink-2">
                     A week totalling {assigned.divisor} {type.unitLabel} pays{" "}
                     {formatINR(assigned.multiplier)}.
                   </p>
@@ -427,7 +445,7 @@ function AssignRatesSheet({ worker, onClose }: { worker: Worker; onClose: () => 
               )}
 
               {assigned && type.kind === "direct_sum" && (
-                <p className="mt-2 pl-8 text-xs text-muted">
+                <p className="mt-2 pl-8 text-xs ink-2">
                   No rate needed — you type the rupee amount each day.
                 </p>
               )}

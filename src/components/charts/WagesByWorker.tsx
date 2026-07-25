@@ -136,8 +136,8 @@ export function WagesByWorker({ stats }: { stats: DashboardStats }) {
               stackId="wage"
               fill={s.color}
               maxBarSize={24}
-              // A 2px surface gap separates stacked segments — never a stroke.
-              stroke={theme.surface}
+              // A 2px panel gap separates stacked segments — never a stroke.
+              stroke={theme.panel}
               strokeWidth={2}
               // 4px rounded cap on the topmost segment only; square at the baseline.
               radius={index === series.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}

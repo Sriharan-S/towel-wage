@@ -2,6 +2,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import type { ReactNode } from "react";
 import {
   BarChart3,
+  HandCoins,
   History,
   Layers,
   PencilLine,
@@ -16,6 +17,7 @@ import { cx } from "@/components/ui";
 interface NavItem {
   to: string;
   label: string;
+  short: string;
   icon: ReactNode;
   /** shown in the phone tab bar */
   primary?: boolean;
@@ -24,18 +26,20 @@ interface NavItem {
 function useNavItems(): NavItem[] {
   const today = useToday();
   return [
-    { to: "/", label: "Dashboard", icon: <BarChart3 size={20} />, primary: true },
-    { to: "/entry", label: "Daily entry", icon: <PencilLine size={20} />, primary: true },
+    { to: "/", label: "Dashboard", short: "Stats", icon: <BarChart3 size={15} />, primary: true },
+    { to: "/entry", label: "Daily entry", short: "Entry", icon: <PencilLine size={15} />, primary: true },
     {
       to: `/week/${weekStartOf(today)}`,
       label: "Wages",
-      icon: <Wallet size={20} />,
+      short: "Wages",
+      icon: <Wallet size={15} />,
       primary: true,
     },
-    { to: "/history", label: "History", icon: <History size={20} />, primary: true },
-    { to: "/workers", label: "Workers", icon: <Users size={20} /> },
-    { to: "/types", label: "Towel types", icon: <Layers size={20} /> },
-    { to: "/settings", label: "Settings", icon: <SettingsIcon size={20} /> },
+    { to: "/advances", label: "Advances", short: "Loans", icon: <HandCoins size={15} />, primary: true },
+    { to: "/history", label: "History", short: "History", icon: <History size={15} /> },
+    { to: "/workers", label: "Workers", short: "Workers", icon: <Users size={15} /> },
+    { to: "/types", label: "Towel types", short: "Types", icon: <Layers size={15} /> },
+    { to: "/settings", label: "Settings", short: "More", icon: <SettingsIcon size={15} /> },
   ];
 }
 
@@ -52,38 +56,36 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-dvh">
-      {/* Desktop sidebar */}
+      {/* Desktop rail */}
       <aside
-        className="no-print fixed inset-y-0 left-0 hidden w-60 flex-col border-r px-3 py-5 lg:flex"
-        style={{ background: "var(--surface)" }}
+        className="no-print fixed inset-y-0 left-0 hidden w-52 flex-col border-r lg:flex"
+        style={{ background: "var(--panel)", borderColor: "var(--line)" }}
       >
-        <div className="mb-6 flex items-center gap-2 px-2">
+        <div
+          className="flex h-11 items-center gap-2 border-b px-3"
+          style={{ borderColor: "var(--line)" }}
+        >
           <div
-            className="flex h-9 w-9 items-center justify-center rounded-xl text-lg"
-            style={{ background: "var(--accent-soft)" }}
+            className="flex h-5 w-5 items-center justify-center rounded text-[11px] font-bold"
+            style={{ background: "var(--accent)", color: "#fff" }}
           >
-            🧻
+            T
           </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">
-              {data?.settings.businessName ?? "Towel Wage"}
-            </p>
-            <p className="text-xs text-muted">Weekly wages</p>
-          </div>
+          <span className="truncate text-xs font-semibold">
+            {data?.settings.businessName ?? "Towel Wage"}
+          </span>
         </div>
 
-        <nav className="flex flex-col gap-1">
+        <nav className="flex flex-col gap-px p-2">
           {items.map((item) => (
             <NavLink
               key={item.label}
               to={item.to}
-              className={cx(
-                "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition",
-              )}
+              className="flex h-7 items-center gap-2.5 rounded px-2 text-xs font-medium transition-colors"
               style={
                 isActive(item.to)
                   ? { background: "var(--accent-soft)", color: "var(--accent)" }
-                  : { color: "var(--text-muted)" }
+                  : { color: "var(--ink-2)" }
               }
             >
               {item.icon}
@@ -91,15 +93,16 @@ export function AppShell({ children }: { children: ReactNode }) {
             </NavLink>
           ))}
         </nav>
+
+        <div className="mt-auto px-3 py-2 text-[10px] ink-4">Sun–Sat pay weeks</div>
       </aside>
 
-      {/* Content */}
-      <main className="pb-24 lg:ml-60 lg:pb-8">{children}</main>
+      <main className="pb-14 lg:ml-52 lg:pb-0">{children}</main>
 
       {/* Phone tab bar */}
       <nav
-        className="no-print safe-bottom fixed inset-x-0 bottom-0 z-40 flex border-t px-2 pt-1 lg:hidden"
-        style={{ background: "var(--surface)" }}
+        className="no-print safe-bottom fixed inset-x-0 bottom-0 z-40 flex border-t lg:hidden"
+        style={{ background: "var(--panel)", borderColor: "var(--line)" }}
       >
         {items
           .filter((i) => i.primary)
@@ -107,27 +110,25 @@ export function AppShell({ children }: { children: ReactNode }) {
             <NavLink
               key={item.label}
               to={item.to}
-              className="flex flex-1 flex-col items-center gap-0.5 rounded-xl py-1.5 text-[11px] font-medium"
-              style={
-                isActive(item.to)
-                  ? { color: "var(--accent)" }
-                  : { color: "var(--text-subtle)" }
-              }
+              className="flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] font-medium"
+              style={isActive(item.to) ? { color: "var(--accent)" } : { color: "var(--ink-3)" }}
             >
               {item.icon}
-              {item.label}
+              {item.short}
             </NavLink>
           ))}
         <NavLink
           to="/settings"
-          className="flex flex-1 flex-col items-center gap-0.5 rounded-xl py-1.5 text-[11px] font-medium"
+          className="flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] font-medium"
           style={
-            ["/settings", "/workers", "/types"].some((p) => location.pathname.startsWith(p))
+            ["/settings", "/workers", "/types", "/history"].some((p) =>
+              location.pathname.startsWith(p),
+            )
               ? { color: "var(--accent)" }
-              : { color: "var(--text-subtle)" }
+              : { color: "var(--ink-3)" }
           }
         >
-          <SettingsIcon size={20} />
+          <SettingsIcon size={15} />
           More
         </NavLink>
       </nav>
@@ -135,33 +136,41 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
 }
 
-/** Sticky page header with an optional trailing action. */
+/**
+ * Page top bar. A single 44px line: title, inline meta, actions on the right.
+ * Deliberately not a large hero — the data below is the point.
+ */
 export function PageHeader({
   title,
-  subtitle,
+  meta,
   action,
-  sticky = true,
+  children,
 }: {
   title: ReactNode;
-  subtitle?: ReactNode;
+  meta?: ReactNode;
   action?: ReactNode;
-  sticky?: boolean;
+  /** an optional second row, e.g. a date navigator */
+  children?: ReactNode;
 }) {
   return (
     <header
-      className={cx(
-        "safe-top z-30 border-b px-4 py-3 lg:px-8",
-        sticky && "sticky top-0",
-      )}
-      style={{ background: "var(--surface)" }}
+      className="safe-top sticky top-0 z-30 border-b"
+      style={{ background: "var(--panel)", borderColor: "var(--line)" }}
     >
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="truncate text-xl font-bold leading-tight">{title}</h1>
-          {subtitle && <p className="mt-0.5 truncate text-sm text-muted">{subtitle}</p>}
-        </div>
-        {action && <div className="no-print flex shrink-0 items-center gap-2">{action}</div>}
+      <div className="mx-auto flex h-11 max-w-[1400px] items-center gap-3 px-3 lg:px-5">
+        <h1 className="shrink-0 text-sm font-semibold">{title}</h1>
+        {meta && <div className="min-w-0 flex-1 truncate text-xs ink-3">{meta}</div>}
+        {!meta && <div className="flex-1" />}
+        {action && <div className="no-print flex shrink-0 items-center gap-1.5">{action}</div>}
       </div>
+      {children && (
+        <div
+          className="mx-auto max-w-[1400px] border-t px-3 py-2 lg:px-5"
+          style={{ borderColor: "var(--line)" }}
+        >
+          {children}
+        </div>
+      )}
     </header>
   );
 }
@@ -174,7 +183,7 @@ export function PageBody({
   className?: string;
 }) {
   return (
-    <div className={cx("mx-auto max-w-6xl px-4 py-4 lg:px-8 lg:py-6", className)}>
+    <div className={cx("mx-auto max-w-[1400px] px-3 py-3 lg:px-5 lg:py-4", className)}>
       {children}
     </div>
   );

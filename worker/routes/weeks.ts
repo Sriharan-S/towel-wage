@@ -12,6 +12,7 @@ const adjustmentsSchema = z.object({
   deduct: nonNegativePaiseSchema.optional(),
   debit: nonNegativePaiseSchema.optional(),
   addback: nonNegativePaiseSchema.optional(),
+  advanceRecovered: nonNegativePaiseSchema.optional(),
   note: z.string().trim().max(200).nullish(),
   paid: z.boolean().optional(),
 });
@@ -107,6 +108,7 @@ app.put("/:weekStart/adjustments/:workerId", async (c) => {
     deduct: body.deduct,
     debit: body.debit,
     addback: body.addback,
+    advance_recovered: body.advanceRecovered,
     note: body.note,
     paid_at: body.paid === undefined ? undefined : body.paid ? new Date().toISOString() : null,
   };
@@ -155,13 +157,15 @@ app.post("/:weekStart/settle/:workerId?", async (c) => {
     targets.map((worker) =>
       c.env.DB
         .prepare(
-          `INSERT INTO week_adjustments (week_start, worker_id, credit, deduct, debit, addback)
-           VALUES (?, ?, ?, ?, ?, ?)
+          `INSERT INTO week_adjustments
+             (week_start, worker_id, credit, deduct, debit, addback, advance_recovered)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (week_start, worker_id) DO UPDATE SET
-             credit  = excluded.credit,
-             deduct  = excluded.deduct,
-             debit   = excluded.debit,
-             addback = excluded.addback`,
+             credit            = excluded.credit,
+             deduct            = excluded.deduct,
+             debit             = excluded.debit,
+             addback           = excluded.addback,
+             advance_recovered = excluded.advance_recovered`,
         )
         .bind(
           weekStart,
@@ -170,6 +174,8 @@ app.post("/:weekStart/settle/:workerId?", async (c) => {
           worker.settlement.deduct,
           worker.settlement.debit,
           worker.settlement.addback,
+          // Echoed back unchanged — advances are never recovered automatically.
+          worker.settlement.advanceRecovered,
         ),
     ),
   );
@@ -200,8 +206,9 @@ app.post("/:weekStart/finalize", async (c) => {
   await c.env.DB.batch([
     ...week.workers.map((w) =>
       c.env.DB.prepare(
-        `INSERT INTO week_adjustments (week_start, worker_id, credit, deduct, debit, addback, wage, net_payable)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO week_adjustments
+           (week_start, worker_id, credit, deduct, debit, addback, advance_recovered, wage, net_payable)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (week_start, worker_id) DO UPDATE SET
            wage = excluded.wage,
            net_payable = excluded.net_payable`,
@@ -212,6 +219,7 @@ app.post("/:weekStart/finalize", async (c) => {
         w.adjustments.deduct,
         w.adjustments.debit,
         w.adjustments.addback,
+        w.adjustments.advanceRecovered,
         w.wage,
         w.netPayable,
       ),

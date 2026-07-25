@@ -11,6 +11,7 @@ import { weekDays } from "./dates";
 import { roundPaiseTo } from "./money";
 import type {
   Adjustments,
+  AdvanceKind,
   Balance,
   Entry,
   LineItemResult,
@@ -26,9 +27,14 @@ export const ZERO_ADJUSTMENTS: Adjustments = {
   deduct: 0,
   debit: 0,
   addback: 0,
+  advanceRecovered: 0,
 };
 
-export const ZERO_BALANCE: Balance = { creditOutstanding: 0, debitOutstanding: 0 };
+export const ZERO_BALANCE: Balance = {
+  creditOutstanding: 0,
+  debitOutstanding: 0,
+  advanceOutstanding: 0,
+};
 
 /**
  * Wage for a single work type over one week.
@@ -62,11 +68,18 @@ export function lineItemWage(params: {
 /**
  * Roll a worker's entries for one week up into per-work-type line items.
  *
- * Rates come from the entries themselves (each entry snapshots the rate that
- * was in force when it was typed), which is what keeps past weeks historically
- * accurate when prices change. Where a week has entries under more than one
- * rate, the most recent entry in the week wins — relevant only for
- * formula_sum_ratio, where the divisor/multiplier apply to the week as a whole.
+ * Rates come from the entries themselves — each entry snapshots the rate that
+ * was in force when it was typed — which is what keeps past weeks historically
+ * accurate when prices change.
+ *
+ * Crucially, a per-piece line is priced **entry by entry**, not by summing the
+ * week's count and multiplying once. Rates can and do change mid-week, and
+ * summing first would silently reprice Monday's towels at Thursday's rate.
+ *
+ * formula_sum_ratio is the one exception: it is defined over the week's total,
+ * so it needs a single divisor/multiplier. There the latest snapshot in the
+ * week wins, and `rateVaried` flags it if that hid a change.
+ *
  * Work types with no entries fall back to the worker's current configured rate.
  */
 export function buildLineItems(params: {
@@ -83,6 +96,10 @@ export function buildLineItems(params: {
 
   // Seed one line item per assigned work type, at the worker's current rate.
   const byWorkType = new Map<number, LineItemResult>();
+  /** distinct per-piece rates seen this week, to detect a mid-week change */
+  const ratesSeen = new Map<number, Set<number>>();
+  /** running wage for the kinds that accumulate per entry */
+  const accruedWage = new Map<number, number>();
 
   const seed = (workTypeId: number, rate: WorkerRate | undefined): LineItemResult | null => {
     const workType = workTypes.get(workTypeId);
@@ -101,8 +118,13 @@ export function buildLineItems(params: {
       wage: 0,
       daily: Object.fromEntries(days.map((d) => [d, 0])),
       daysWorked: 0,
+      looms: 1,
+      loomTotals: [],
+      rateVaried: false,
     };
     byWorkType.set(workTypeId, item);
+    ratesSeen.set(workTypeId, new Set());
+    accruedWage.set(workTypeId, 0);
     return item;
   };
 
@@ -114,8 +136,10 @@ export function buildLineItems(params: {
 
   const rateByWorkType = new Map(rates.map((r) => [r.workTypeId, r]));
 
-  // Track the latest entry date per work type so the newest snapshot wins.
+  // Track the latest entry date per work type so the newest snapshot wins for
+  // the week-level formula rate.
   const latestRateDate = new Map<number, ISODate>();
+  const daysWithWork = new Map<number, Set<ISODate>>();
 
   for (const entry of entries) {
     if (!daySet.has(entry.entryDate)) continue;
@@ -128,7 +152,6 @@ export function buildLineItems(params: {
       if (!item) continue;
     }
 
-    // The entry's own snapshot is the source of truth for the rate.
     const latest = latestRateDate.get(entry.workTypeId);
     if (!latest || entry.entryDate >= latest) {
       latestRateDate.set(entry.workTypeId, entry.entryDate);
@@ -138,19 +161,51 @@ export function buildLineItems(params: {
       item.multiplier = entry.multiplier;
     }
 
+    // Each loom is recorded separately but paid as one line.
+    const loom = Math.max(1, entry.loom);
+    item.looms = Math.max(item.looms, loom);
+    while (item.loomTotals.length < loom) item.loomTotals.push(0);
+
     const value = entry.kind === "direct_sum" ? entry.amount : entry.quantity;
+
     if (entry.kind === "direct_sum") {
       item.totalAmount += entry.amount;
+      accruedWage.set(entry.workTypeId, (accruedWage.get(entry.workTypeId) ?? 0) + entry.amount);
     } else {
       item.totalQuantity += entry.quantity;
+      if (entry.kind === "count_x_price") {
+        // Price this entry at ITS OWN snapshot, then add it in.
+        ratesSeen.get(entry.workTypeId)!.add(entry.unitPrice);
+        accruedWage.set(
+          entry.workTypeId,
+          (accruedWage.get(entry.workTypeId) ?? 0) + Math.round(entry.quantity * entry.unitPrice),
+        );
+      } else {
+        ratesSeen.get(entry.workTypeId)!.add(entry.multiplier * 1e6 + entry.divisor);
+      }
     }
-    item.daily[entry.entryDate] = value;
-    if (value !== 0) item.daysWorked += 1;
+
+    item.loomTotals[loom - 1] += value;
+    item.daily[entry.entryDate] = (item.daily[entry.entryDate] ?? 0) + value;
+
+    if (value !== 0) {
+      if (!daysWithWork.has(entry.workTypeId)) daysWithWork.set(entry.workTypeId, new Set());
+      daysWithWork.get(entry.workTypeId)!.add(entry.entryDate);
+    }
   }
 
   const items = [...byWorkType.values()];
   for (const item of items) {
-    item.wage = lineItemWage(item);
+    item.daysWorked = daysWithWork.get(item.workTypeId)?.size ?? 0;
+    item.rateVaried = (ratesSeen.get(item.workTypeId)?.size ?? 0) > 1;
+    if (item.loomTotals.length === 0) item.loomTotals = [0];
+
+    // formula_sum_ratio is a whole-week calculation; the others are already
+    // totalled entry by entry above.
+    item.wage =
+      item.kind === "formula_sum_ratio"
+        ? lineItemWage(item)
+        : (accruedWage.get(item.workTypeId) ?? 0);
   }
 
   // Keep the worker's configured display order, unassigned types last.
@@ -173,34 +228,62 @@ export function sumLineItemWages(items: LineItemResult[]): number {
 /**
  * What the worker is actually handed on Saturday.
  *
- *   credit  — extra paid to round UP   (worker ends up owing you)
- *   deduct  — clawing back an old credit
- *   debit   — withheld to round DOWN   (you end up owing the worker)
- *   addback — paying back an old debit
+ *   credit          — extra paid to round UP   (worker ends up owing you)
+ *   deduct          — clawing back an old credit
+ *   debit           — withheld to round DOWN   (you end up owing the worker)
+ *   addback         — paying back an old debit
+ *   advanceRecovered— taken off against money lent out mid-week
  */
 export function netPayable(wage: number, adj: Adjustments): number {
-  return wage + adj.credit - adj.deduct - adj.debit + adj.addback;
+  return (
+    wage + adj.credit - adj.deduct - adj.debit + adj.addback - adj.advanceRecovered
+  );
 }
 
-/** Fold one week's adjustments into a running balance. */
-export function applyToBalance(balance: Balance, adj: Adjustments): Balance {
+/**
+ * Fold one week's adjustments into a running balance.
+ *
+ * `advanceDelta` is the net of advances handed out minus repayments taken in
+ * during the week; recovering from the wage reduces what is still outstanding.
+ */
+export function applyToBalance(
+  balance: Balance,
+  adj: Adjustments,
+  advanceDelta = 0,
+): Balance {
   return {
     creditOutstanding: balance.creditOutstanding + adj.credit - adj.deduct,
     debitOutstanding: balance.debitOutstanding + adj.debit - adj.addback,
+    advanceOutstanding:
+      balance.advanceOutstanding + advanceDelta - adj.advanceRecovered,
   };
+}
+
+/** Net effect of a set of advance/repayment rows on what is owed. */
+export function advanceDelta(rows: Array<{ kind: AdvanceKind; amount: number }>): number {
+  return rows.reduce(
+    (total, row) => total + (row.kind === "advance" ? row.amount : -row.amount),
+    0,
+  );
 }
 
 /** Total the adjustment rows of every week before `weekStart` into a balance. */
 export function balanceBefore(
   history: Array<{ weekStart: ISODate } & Adjustments>,
   weekStart: ISODate,
+  advances: Array<{ weekStart: ISODate; kind: AdvanceKind; amount: number }> = [],
 ): Balance {
   let balance = ZERO_BALANCE;
   for (const row of history) {
     if (row.weekStart >= weekStart) continue;
     balance = applyToBalance(balance, row);
   }
-  return balance;
+  // Advances given before this week add to what is outstanding.
+  const earlier = advances.filter((a) => a.weekStart < weekStart);
+  return {
+    ...balance,
+    advanceOutstanding: balance.advanceOutstanding + advanceDelta(earlier),
+  };
 }
 
 /**
@@ -252,7 +335,7 @@ export function computeRounding(
   stepRupees: number,
   direction: "up" | "down" | "nearest",
 ): { credit: number; debit: number; netPayable: number } {
-  const settled = wage - adj.deduct + adj.addback;
+  const settled = wage - adj.deduct + adj.addback - adj.advanceRecovered;
   const target = roundPayable(settled, stepRupees, direction);
   const delta = target - settled;
   return {
@@ -305,20 +388,31 @@ export function suggestSettlement(params: {
   // 2. Repay an earlier debit in full.
   const addback = Math.max(0, opening.debitOutstanding);
 
-  // 3 & 4. Round what is left.
-  const settled = wage - deduct + addback;
+  /**
+   * 3. Advances are deliberately NOT recovered automatically.
+   *
+   * A loan is a conversation — how much comes off this week depends on what
+   * the worker can afford, not on what the arithmetic allows. The outstanding
+   * figure is surfaced prominently instead, and whatever you type is respected
+   * here so the rounding lands on the right number.
+   */
+  const advanceRecovered = Math.max(0, current?.advanceRecovered ?? 0);
+
+  // 4 & 5. Clear the paise, then round to the step.
+  const settled = wage - deduct + addback - advanceRecovered;
   const netPayable = roundPayable(settled, step, DIRECTION_FOR_MODE[mode]);
   const delta = netPayable - settled;
   const credit = delta > 0 ? delta : 0;
   const debit = delta < 0 ? -delta : 0;
 
-  const proposal: Adjustments = { credit, deduct, debit, addback };
+  const proposal: Adjustments = { credit, deduct, debit, addback, advanceRecovered };
   const isNoop =
     current !== undefined &&
     current.credit === credit &&
     current.deduct === deduct &&
     current.debit === debit &&
-    current.addback === addback;
+    current.addback === addback &&
+    current.advanceRecovered === advanceRecovered;
 
   return {
     ...proposal,
@@ -328,6 +422,7 @@ export function suggestSettlement(params: {
     // What you will owe once this is paid: the old debit is cleared by the
     // add-back, and anything rounded down is newly owed.
     carriedDebit: Math.max(0, opening.debitOutstanding - addback) + debit,
+    advanceOutstanding: Math.max(0, opening.advanceOutstanding - advanceRecovered),
     mode,
     step,
     isNoop,

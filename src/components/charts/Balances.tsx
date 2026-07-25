@@ -21,7 +21,7 @@ export function Balances({ stats }: { stats: DashboardStats }) {
         subtitle="Everyone is square"
         table={<DataTable columns={["Worker", "Balance"]} rows={[]} />}
       >
-        <p className="px-4 py-8 text-center text-sm text-muted">
+        <p className="px-4 py-8 text-center text-sm ink-2">
           No credits or debits are carrying forward. Nothing to chase, nothing owed.
         </p>
       </ChartCard>

@@ -125,7 +125,7 @@ export function OutputByType({ stats }: { stats: DashboardStats }) {
               stackId="output"
               fill={t.color}
               maxBarSize={24}
-              stroke={theme.surface}
+              stroke={theme.panel}
               strokeWidth={2}
               radius={index === totals.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
             />

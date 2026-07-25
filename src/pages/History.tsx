@@ -5,7 +5,7 @@ import { PageBody, PageHeader } from "@/components/layout/AppShell";
 import {
   Badge,
   Button,
-  Card,
+  Panel,
   EmptyState,
   ErrorState,
   Input,
@@ -65,7 +65,7 @@ export default function HistoryPage() {
     <>
       <PageHeader
         title="History"
-        subtitle={`${filtered.length} ${filtered.length === 1 ? "week" : "weeks"} · ${formatINR(grandTotal)} paid`}
+        meta={`${filtered.length} ${filtered.length === 1 ? "week" : "weeks"} · ${formatINR(grandTotal)} paid`}
         action={
           <>
             <Button size="sm" icon={<Download size={15} />} onClick={() => download("csv")}>
@@ -79,22 +79,22 @@ export default function HistoryPage() {
       />
 
       <PageBody className="space-y-3">
-        <Card className="space-y-3 p-3">
+        <Panel className="space-y-3 p-3">
           <div className="flex items-center gap-2 text-sm font-medium">
-            <Search size={15} style={{ color: "var(--text-muted)" }} />
+            <Search size={15} style={{ color: "var(--ink-2)" }} />
             Filter
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             <label className="block">
-              <span className="mb-1 block text-xs text-muted">From</span>
+              <span className="mb-1 block text-xs ink-2">From</span>
               <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
             </label>
             <label className="block">
-              <span className="mb-1 block text-xs text-muted">To</span>
+              <span className="mb-1 block text-xs ink-2">To</span>
               <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
             </label>
             <label className="col-span-2 block sm:col-span-1">
-              <span className="mb-1 block text-xs text-muted">Worker</span>
+              <span className="mb-1 block text-xs ink-2">Worker</span>
               <Select
                 value={String(workerId)}
                 onChange={(e) =>
@@ -123,10 +123,10 @@ export default function HistoryPage() {
               Clear filters
             </Button>
           )}
-        </Card>
+        </Panel>
 
         {filtered.length === 0 ? (
-          <Card>
+          <Panel>
             <EmptyState
               icon={<HistoryIcon size={28} />}
               title="No weeks match"
@@ -136,10 +136,10 @@ export default function HistoryPage() {
                   : "Once you record some daily entries, your weekly history will build up here."
               }
             />
-          </Card>
+          </Panel>
         ) : (
           filtered.map((week) => (
-            <Card key={week.weekStart} className="overflow-hidden">
+            <Panel key={week.weekStart} className="overflow-hidden">
               <button
                 className="flex w-full items-center gap-3 px-4 py-3 text-left"
                 onClick={() => navigate(`/week/${week.weekStart}`)}
@@ -156,28 +156,28 @@ export default function HistoryPage() {
                       </Badge>
                     )}
                   </div>
-                  <p className="mt-1 text-sm text-muted">
+                  <p className="mt-1 text-sm ink-2">
                     {week.workers.map((w) => w.workerName).join(", ")}
                   </p>
                 </div>
                 <div className="shrink-0 text-right">
-                  <div className="tnum font-bold" style={{ color: "var(--positive)" }}>
+                  <div className="tnum font-bold" style={{ color: "var(--pos)" }}>
                     {formatINR(week.totals.netPayable)}
                   </div>
                   {week.totals.quantity > 0 && workerId === "all" && (
-                    <div className="text-xs text-muted">
+                    <div className="text-xs ink-2">
                       {formatCount(week.totals.quantity)} pieces
                     </div>
                   )}
                 </div>
-                <ChevronRight size={18} style={{ color: "var(--text-subtle)" }} />
+                <ChevronRight size={18} style={{ color: "var(--ink-4)" }} />
               </button>
 
-              <div className="border-t px-4 py-2" style={{ background: "var(--surface-2)" }}>
+              <div className="border-t px-4 py-2" style={{ background: "var(--panel-2)" }}>
                 <div className="space-y-1">
                   {week.workers.map((worker) => (
                     <div key={worker.workerId} className="flex justify-between text-sm">
-                      <span className="truncate text-muted">{worker.workerName}</span>
+                      <span className="truncate ink-2">{worker.workerName}</span>
                       <span className="tnum shrink-0 font-medium">
                         {formatINR(worker.netPayable)}
                       </span>
@@ -185,7 +185,7 @@ export default function HistoryPage() {
                   ))}
                 </div>
               </div>
-            </Card>
+            </Panel>
           ))
         )}
       </PageBody>

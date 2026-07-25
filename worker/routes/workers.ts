@@ -31,6 +31,8 @@ const rateSchema = z.object({
   unitPrice: nonNegativePaiseSchema.default(0),
   divisor: z.number().positive().max(1_000_000).default(75),
   multiplier: nonNegativePaiseSchema.default(3500),
+  /** how many looms this worker runs on this type */
+  looms: z.number().int().min(1).max(20).default(1),
   isActive: z.boolean().default(true),
 });
 
@@ -172,12 +174,13 @@ app.put("/:id/rates", async (c) => {
     ...body.rates.map((rate, index) =>
       c.env.DB.prepare(
         `INSERT INTO worker_rates
-           (worker_id, work_type_id, unit_price, divisor, multiplier, is_active, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+           (worker_id, work_type_id, unit_price, divisor, multiplier, looms, is_active, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (worker_id, work_type_id) DO UPDATE SET
            unit_price = excluded.unit_price,
            divisor    = excluded.divisor,
            multiplier = excluded.multiplier,
+           looms      = excluded.looms,
            is_active  = excluded.is_active,
            sort_order = excluded.sort_order`,
       ).bind(
@@ -186,6 +189,7 @@ app.put("/:id/rates", async (c) => {
         rate.unitPrice,
         rate.divisor,
         rate.multiplier,
+        rate.looms,
         rate.isActive ? 1 : 0,
         index + 1,
       ),

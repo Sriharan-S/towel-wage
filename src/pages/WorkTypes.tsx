@@ -4,7 +4,7 @@ import { PageBody, PageHeader } from "@/components/layout/AppShell";
 import {
   Badge,
   Button,
-  Card,
+  Panel,
   ConfirmSheet,
   EmptyState,
   Field,
@@ -55,7 +55,7 @@ export default function WorkTypes() {
     <>
       <PageHeader
         title="Towel types"
-        subtitle={`${types.filter((t) => t.isActive).length} active`}
+        meta={`${types.filter((t) => t.isActive).length} active`}
         action={
           <Button
             size="sm"
@@ -70,7 +70,7 @@ export default function WorkTypes() {
 
       <PageBody className="space-y-3">
         {visible.length === 0 ? (
-          <Card>
+          <Panel>
             <EmptyState
               icon={<Layers size={28} />}
               title="No towel types yet"
@@ -81,10 +81,10 @@ export default function WorkTypes() {
                 </Button>
               }
             />
-          </Card>
+          </Panel>
         ) : (
           visible.map((type) => (
-            <Card key={type.id} className="p-3">
+            <Panel key={type.id} className="p-3">
               <button
                 className="flex w-full items-center gap-3 text-left"
                 onClick={() => setEditing(type)}
@@ -98,7 +98,7 @@ export default function WorkTypes() {
                     <span className="truncate font-semibold">{type.name}</span>
                     {!type.isActive && <Badge>Hidden</Badge>}
                   </div>
-                  <p className="mt-0.5 truncate text-sm text-muted">
+                  <p className="mt-0.5 truncate text-sm ink-2">
                     {type.kind === "count_x_price" &&
                       `${formatINR(type.defaultUnitPrice)} per ${type.unitLabel.replace(/s$/, "")} (default)`}
                     {type.kind === "direct_sum" && "Daily rupee amount"}
@@ -108,12 +108,12 @@ export default function WorkTypes() {
                 </div>
                 <div className="shrink-0 text-right">
                   <Badge tone="accent">{WORK_KIND_LABELS[type.kind]}</Badge>
-                  <p className="mt-1 text-xs text-muted">
+                  <p className="mt-1 text-xs ink-2">
                     {usedBy(type.id)} {usedBy(type.id) === 1 ? "worker" : "workers"}
                   </p>
                 </div>
               </button>
-            </Card>
+            </Panel>
           ))
         )}
 
@@ -293,7 +293,7 @@ function WorkTypeSheet({
             <Field label="Times ₹">
               <NumberInput value={multiplier} onChange={(e) => setMultiplier(e.target.value)} />
             </Field>
-            <p className="col-span-2 -mt-2 text-xs text-muted">
+            <p className="col-span-2 -mt-2 text-xs ink-2">
               A week totalling {divisor || 0} {unitLabel} pays ₹{multiplier || 0}.
             </p>
           </div>
@@ -310,7 +310,7 @@ function WorkTypeSheet({
                 className="h-9 w-9 rounded-xl transition"
                 style={{
                   background: c,
-                  outline: color === c ? "2px solid var(--text)" : "none",
+                  outline: color === c ? "2px solid var(--ink)" : "none",
                   outlineOffset: 2,
                 }}
               />
@@ -322,7 +322,7 @@ function WorkTypeSheet({
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium">Active</p>
-              <p className="text-xs text-muted">
+              <p className="text-xs ink-2">
                 Hidden types stay out of daily entry but keep their history.
               </p>
             </div>

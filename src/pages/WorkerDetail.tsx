@@ -10,7 +10,7 @@ import {
 } from "recharts";
 import { ArrowLeft, Settings2 } from "lucide-react";
 import { PageBody, PageHeader } from "@/components/layout/AppShell";
-import { Badge, Button, Card, EmptyState, ErrorState, Spinner } from "@/components/ui";
+import { Badge, Button, Panel, EmptyState, ErrorState, Spinner } from "@/components/ui";
 import { ChartCard, DataTable, Legend, TooltipBox } from "@/components/charts/ChartCard";
 import { StatTile } from "@/components/charts/StatTile";
 import { useChartTheme } from "@/lib/palette";
@@ -36,13 +36,13 @@ export default function WorkerDetail() {
   if (!worker) {
     return (
       <PageBody>
-        <Card>
+        <Panel>
           <EmptyState
             title="Worker not found"
             description="They may have been removed."
             action={<Button onClick={() => navigate("/workers")}>Back to workers</Button>}
           />
-        </Card>
+        </Panel>
       </PageBody>
     );
   }
@@ -84,7 +84,7 @@ export default function WorkerDetail() {
     <>
       <PageHeader
         title={worker.name}
-        subtitle={`${rates.length} towel ${rates.length === 1 ? "type" : "types"} assigned`}
+        meta={`${rates.length} towel ${rates.length === 1 ? "type" : "types"} assigned`}
         action={
           <>
             <Button size="sm" icon={<ArrowLeft size={15} />} onClick={() => navigate("/workers")}>
@@ -105,7 +105,7 @@ export default function WorkerDetail() {
         {!worker.isActive && (
           <div
             className="rounded-xl px-3 py-2.5 text-sm"
-            style={{ background: "var(--surface-3)", color: "var(--text-muted)" }}
+            style={{ background: "var(--panel-3)", color: "var(--ink-2)" }}
           >
             This worker is inactive. Their history is kept, but they no longer appear on the
             daily entry screen.
@@ -205,7 +205,7 @@ export default function WorkerDetail() {
                   activeDot={{
                     r: 4,
                     fill: theme.series(0),
-                    stroke: theme.surface,
+                    stroke: theme.panel,
                     strokeWidth: 2,
                   }}
                 />
@@ -237,7 +237,7 @@ export default function WorkerDetail() {
           >
             <div className="space-y-2.5 px-3 pt-1">
               {mixRows.length === 0 && (
-                <p className="py-6 text-center text-sm text-muted">
+                <p className="py-6 text-center text-sm ink-2">
                   No work recorded in this period.
                 </p>
               )}
@@ -267,13 +267,13 @@ export default function WorkerDetail() {
           </ChartCard>
         </div>
 
-        <Card>
+        <Panel>
           <div className="px-4 pt-4">
             <h2 className="text-sm font-semibold">Assigned towel types</h2>
           </div>
           <div className="divide-y px-4 py-2">
             {rates.length === 0 && (
-              <p className="py-4 text-sm text-muted">
+              <p className="py-4 text-sm ink-2">
                 No towel types assigned yet — assign some from the Workers screen.
               </p>
             )}
@@ -298,7 +298,7 @@ export default function WorkerDetail() {
               );
             })}
           </div>
-        </Card>
+        </Panel>
       </PageBody>
     </>
   );

@@ -17,6 +17,8 @@ const app = new Hono<AppEnv>();
 const dayEntrySchema = z.object({
   workerId: z.number().int().positive(),
   workTypeId: z.number().int().positive(),
+  /** which loom this figure came off, 1-based */
+  loom: z.number().int().min(1).max(20).default(1),
   /** count, for count_x_price and formula_sum_ratio */
   quantity: quantitySchema.default(0),
   /** paise, for direct_sum */
@@ -32,7 +34,7 @@ app.get("/", async (c) => {
 
   if (date) {
     const { results } = await c.env.DB.prepare(
-      "SELECT * FROM entries WHERE entry_date = ? ORDER BY worker_id, work_type_id",
+      "SELECT * FROM entries WHERE entry_date = ? ORDER BY worker_id, work_type_id, loom",
     )
       .bind(readDate(date))
       .all<EntryRow>();
@@ -98,8 +100,8 @@ app.put("/:date", async (c) => {
     if (isEmpty) {
       statements.push(
         c.env.DB.prepare(
-          "DELETE FROM entries WHERE entry_date = ? AND worker_id = ? AND work_type_id = ?",
-        ).bind(entryDate, item.workerId, item.workTypeId),
+          "DELETE FROM entries WHERE entry_date = ? AND worker_id = ? AND work_type_id = ? AND loom = ?",
+        ).bind(entryDate, item.workerId, item.workTypeId, item.loom),
       );
       continue;
     }
@@ -107,10 +109,10 @@ app.put("/:date", async (c) => {
     statements.push(
       c.env.DB.prepare(
         `INSERT INTO entries
-           (entry_date, week_start, worker_id, work_type_id, kind, quantity, amount,
+           (entry_date, week_start, worker_id, work_type_id, loom, kind, quantity, amount,
             unit_price, divisor, multiplier, note, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-         ON CONFLICT (entry_date, worker_id, work_type_id) DO UPDATE SET
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+         ON CONFLICT (entry_date, worker_id, work_type_id, loom) DO UPDATE SET
            kind       = excluded.kind,
            quantity   = excluded.quantity,
            amount     = excluded.amount,
@@ -124,6 +126,7 @@ app.put("/:date", async (c) => {
         weekStart,
         item.workerId,
         item.workTypeId,
+        item.loom,
         workType.kind,
         quantity,
         amount,
@@ -138,7 +141,7 @@ app.put("/:date", async (c) => {
   if (statements.length) await c.env.DB.batch(statements);
 
   const { results } = await c.env.DB.prepare(
-    "SELECT * FROM entries WHERE entry_date = ? ORDER BY worker_id, work_type_id",
+    "SELECT * FROM entries WHERE entry_date = ? ORDER BY worker_id, work_type_id, loom",
   )
     .bind(entryDate)
     .all<EntryRow>();
@@ -183,10 +186,10 @@ app.post("/copy", async (c) => {
       const rate = rates.get(`${row.worker_id}:${row.work_type_id}`);
       return c.env.DB.prepare(
         `INSERT INTO entries
-           (entry_date, week_start, worker_id, work_type_id, kind, quantity, amount,
+           (entry_date, week_start, worker_id, work_type_id, loom, kind, quantity, amount,
             unit_price, divisor, multiplier, note, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, datetime('now'))
-         ON CONFLICT (entry_date, worker_id, work_type_id) DO UPDATE SET
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, datetime('now'))
+         ON CONFLICT (entry_date, worker_id, work_type_id, loom) DO UPDATE SET
            quantity   = excluded.quantity,
            amount     = excluded.amount,
            unit_price = excluded.unit_price,
@@ -198,6 +201,7 @@ app.post("/copy", async (c) => {
         targetWeek,
         row.worker_id,
         row.work_type_id,
+        row.loom,
         row.kind,
         row.quantity,
         row.amount,

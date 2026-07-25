@@ -155,7 +155,7 @@ export function DailyHeatmap({ stats }: { stats: DashboardStats }) {
           {hoveredDay ? (
             <p>
               <span className="font-medium">{formatDayLabel(hoveredDay.date)}</span>{" "}
-              <span className="text-muted">
+              <span className="ink-2">
                 {hoveredDay.entryCount === 0
                   ? "— nothing recorded"
                   : `— ${formatCount(hoveredDay.quantity)} pieces · ${formatINR(hoveredDay.wage)}`}
@@ -163,7 +163,7 @@ export function DailyHeatmap({ stats }: { stats: DashboardStats }) {
             </p>
           ) : (
             missing.length > 0 && (
-              <p className="text-muted">
+              <p className="ink-2">
                 Missing:{" "}
                 {missing.map((date, i) => (
                   <span key={date}>

@@ -6,6 +6,7 @@
  */
 
 import {
+  advanceDelta,
   applyToBalance,
   buildLineItems,
   netPayable,
@@ -29,11 +30,13 @@ import type {
 } from "@shared/types";
 import {
   loadSettings,
+  toAdvance,
   toEntry,
   toWeekAdjustment,
   toWorkType,
   toWorker,
   toWorkerRate,
+  type AdvanceRow,
   type EntryRow,
   type WeekAdjustmentRow,
   type WorkTypeRow,
@@ -58,18 +61,22 @@ export async function computeWeek(
   db: D1Database,
   weekStart: ISODate,
 ): Promise<WeekResult> {
-  const [workerRes, typeRes, rateRes, entryRes, adjRes, weekRow] = await db.batch([
-    db.prepare("SELECT * FROM workers ORDER BY sort_order, name"),
-    db.prepare("SELECT * FROM work_types ORDER BY sort_order, name"),
-    db.prepare("SELECT * FROM worker_rates ORDER BY sort_order, id"),
-    db.prepare("SELECT * FROM entries WHERE week_start = ?").bind(weekStart),
-    // Everything up to and including this week: earlier rows build the opening
-    // balance, this week's row supplies the current adjustments.
-    db
-      .prepare("SELECT * FROM week_adjustments WHERE week_start <= ? ORDER BY week_start")
-      .bind(weekStart),
-    db.prepare("SELECT status, finalized_at FROM weeks WHERE week_start = ?").bind(weekStart),
-  ]);
+  const [workerRes, typeRes, rateRes, entryRes, adjRes, weekRow, advanceRes] =
+    await db.batch([
+      db.prepare("SELECT * FROM workers ORDER BY sort_order, name"),
+      db.prepare("SELECT * FROM work_types ORDER BY sort_order, name"),
+      db.prepare("SELECT * FROM worker_rates ORDER BY sort_order, id"),
+      db.prepare("SELECT * FROM entries WHERE week_start = ?").bind(weekStart),
+      // Everything up to and including this week: earlier rows build the opening
+      // balance, this week's row supplies the current adjustments.
+      db
+        .prepare("SELECT * FROM week_adjustments WHERE week_start <= ? ORDER BY week_start")
+        .bind(weekStart),
+      db.prepare("SELECT status, finalized_at FROM weeks WHERE week_start = ?").bind(weekStart),
+      db
+        .prepare("SELECT * FROM advances WHERE week_start <= ? ORDER BY entry_date, id")
+        .bind(weekStart),
+    ]);
 
   const workers = (workerRes.results as unknown as WorkerRow[]).map(toWorker);
   const workTypes = new Map(
@@ -80,6 +87,7 @@ export async function computeWeek(
   const rates = (rateRes.results as unknown as WorkerRateRow[]).map(toWorkerRate);
   const entries = (entryRes.results as unknown as EntryRow[]).map(toEntry);
   const adjustments = (adjRes.results as unknown as WeekAdjustmentRow[]).map(toWeekAdjustment);
+  const advances = (advanceRes.results as unknown as AdvanceRow[]).map(toAdvance);
 
   // The settlement proposal depends on the configured rounding preference.
   const settings = await loadSettings(db);
@@ -116,6 +124,24 @@ export async function computeWeek(
     }
   }
 
+  // Advances from earlier weeks add to the opening balance. Advances taken
+  // during THIS week belong to this week's payout, so they are folded into the
+  // opening figure too — the money is already out of the till, and holding it
+  // back on Saturday is the whole point.
+  const advancesThisWeek = new Map<number, typeof advances>();
+  for (const advance of advances) {
+    const balance = openingBalances.get(advance.workerId) ?? ZERO_BALANCE;
+    openingBalances.set(advance.workerId, {
+      ...balance,
+      advanceOutstanding: balance.advanceOutstanding + advanceDelta([advance]),
+    });
+    if (advance.weekStart === weekStart) {
+      const list = advancesThisWeek.get(advance.workerId) ?? [];
+      list.push(advance);
+      advancesThisWeek.set(advance.workerId, list);
+    }
+  }
+
   const results: WorkerWeekResult[] = [];
 
   for (const worker of workers) {
@@ -123,10 +149,24 @@ export async function computeWeek(
     const workerRates = ratesByWorker.get(worker.id) ?? [];
     const adjustmentRow = currentAdjustments.get(worker.id);
 
+    const workerAdvances = advancesThisWeek.get(worker.id) ?? [];
+
     // A deactivated worker only appears if this week actually concerns them.
-    if (!worker.isActive && workerEntries.length === 0 && !adjustmentRow) continue;
+    if (
+      !worker.isActive &&
+      workerEntries.length === 0 &&
+      !adjustmentRow &&
+      workerAdvances.length === 0
+    )
+      continue;
     // An active worker with nothing assigned and nothing entered is noise.
-    if (worker.isActive && workerRates.length === 0 && workerEntries.length === 0) continue;
+    if (
+      worker.isActive &&
+      workerRates.length === 0 &&
+      workerEntries.length === 0 &&
+      workerAdvances.length === 0
+    )
+      continue;
 
     const lineItems = buildLineItems({
       weekStart,
@@ -141,6 +181,7 @@ export async function computeWeek(
           deduct: adjustmentRow.deduct,
           debit: adjustmentRow.debit,
           addback: adjustmentRow.addback,
+          advanceRecovered: adjustmentRow.advanceRecovered,
         }
       : { ...ZERO_ADJUSTMENTS };
 
@@ -168,6 +209,7 @@ export async function computeWeek(
         mode: settings.roundingMode,
         current: adj,
       }),
+      advances: workerAdvances,
       paidAt: adjustmentRow?.paidAt ?? null,
       note: adjustmentRow?.note ?? null,
     });
@@ -180,10 +222,20 @@ export async function computeWeek(
       deduct: acc.deduct + r.adjustments.deduct,
       debit: acc.debit + r.adjustments.debit,
       addback: acc.addback + r.adjustments.addback,
+      advanceRecovered: acc.advanceRecovered + r.adjustments.advanceRecovered,
       netPayable: acc.netPayable + r.netPayable,
       quantity: acc.quantity + totalQuantity(r.lineItems),
     }),
-    { wage: 0, credit: 0, deduct: 0, debit: 0, addback: 0, netPayable: 0, quantity: 0 },
+    {
+      wage: 0,
+      credit: 0,
+      deduct: 0,
+      debit: 0,
+      addback: 0,
+      advanceRecovered: 0,
+      netPayable: 0,
+      quantity: 0,
+    },
   );
 
   return {
