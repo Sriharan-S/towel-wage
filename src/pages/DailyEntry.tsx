@@ -684,6 +684,7 @@ function WorkerEntry({
         open={confirmSave}
         onClose={() => setConfirmSave(false)}
         loading={saveDay.isPending}
+        confirmOnEnter
         confirmLabel={`Save ${formatINR(total)}`}
         title={`Finished with ${worker.name}?`}
         description={

@@ -476,6 +476,7 @@ export function ConfirmSheet({
   confirmLabel = "Confirm",
   destructive = false,
   loading = false,
+  confirmOnEnter = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -485,7 +486,44 @@ export function ConfirmSheet({
   confirmLabel?: string;
   destructive?: boolean;
   loading?: boolean;
+  /**
+   * Let Enter confirm, for prompts reached by pressing Enter in the first
+   * place. Deliberately opt-in — a stray Enter must never delete anything, so
+   * destructive prompts leave it off.
+   */
+  confirmOnEnter?: boolean;
 }) {
+  // Held in a ref so a caller's inline arrow does not re-run the effect below
+  // on every render, which would keep restarting the arming delay.
+  const confirmRef = useRef(onConfirm);
+  confirmRef.current = onConfirm;
+
+  useEffect(() => {
+    if (!open || !confirmOnEnter || loading) return;
+
+    /*
+      Armed on a short delay, and deaf to auto-repeat. Without both, the very
+      keypress that opened this prompt — or a finger resting on Enter — would
+      confirm it before it had been read.
+    */
+    let armed = false;
+    const timer = setTimeout(() => {
+      armed = true;
+    }, 250);
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" || e.repeat || !armed) return;
+      e.preventDefault();
+      confirmRef.current();
+    };
+
+    document.addEventListener("keydown", onKey);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, confirmOnEnter, loading]);
+
   return (
     <Sheet
       open={open}
@@ -509,6 +547,12 @@ export function ConfirmSheet({
       }
     >
       <div className="text-xs leading-relaxed ink-2">{description}</div>
+      {confirmOnEnter && (
+        <p className="mt-2 text-[11px] ink-4">
+          Press <kbd className="font-mono">Enter</kbd> again to confirm, or{" "}
+          <kbd className="font-mono">Esc</kbd> to go back.
+        </p>
+      )}
     </Sheet>
   );
 }
