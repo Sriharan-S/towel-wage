@@ -181,6 +181,9 @@ export default function WorkerWage() {
     return computeTargetPayment(worker.wage, { ...parsed }, target);
   }, [payDraft, parsed, worker.wage]);
 
+  /** True once the typed figure is what the worker is actually set to be paid. */
+  const payApplied = payPreview !== null && payPreview.netPayable === liveNet;
+
   const applyTarget = () => {
     if (!payPreview) return;
     setDraft((c) => ({
@@ -189,7 +192,8 @@ export default function WorkerWage() {
       debit: payPreview.debit ? String(toRupees(payPreview.debit)) : "",
     }));
     save({ credit: payPreview.credit, debit: payPreview.debit });
-    setPayDraft("");
+    // The box keeps what was typed. Clearing it would fall back to showing the
+    // suggested figure as a placeholder, which reads as if the entry was lost.
     toast(`Set to pay ${formatINR(payPreview.netPayable)}.`, { tone: "success" });
   };
 
@@ -475,34 +479,40 @@ export default function WorkerWage() {
                     size="md"
                     variant="primary"
                     onClick={applyTarget}
-                    disabled={parseRupeeInput(payDraft) <= 0}
+                    disabled={parseRupeeInput(payDraft) <= 0 || payApplied}
                   >
-                    Apply
+                    {payApplied ? "Applied" : "Apply"}
                   </Button>
                 </div>
 
                 {payPreview && (
                   <p
                     className="mt-2 rounded border px-2.5 py-1.5 text-xs"
-                    style={{
-                      background: "var(--accent-soft)",
-                      borderColor: "var(--accent-line)",
-                    }}
+                    style={
+                      payApplied
+                        ? { background: "var(--pos-soft)", borderColor: "var(--line)" }
+                        : {
+                            background: "var(--accent-soft)",
+                            borderColor: "var(--accent-line)",
+                          }
+                    }
                   >
-                    Pay <strong>{formatINR(payPreview.netPayable)}</strong> —{" "}
+                    {payApplied ? "Set to pay " : "Pay "}
+                    <strong>{formatINR(payPreview.netPayable)}</strong> —{" "}
                     {payPreview.credit > 0 && (
                       <>
-                        {worker.workerName} will owe you{" "}
+                        {worker.workerName} {payApplied ? "owes" : "will owe"} you{" "}
                         <strong>{formatINR(payPreview.credit)}</strong>, recovered next week.
                       </>
                     )}
                     {payPreview.debit > 0 && (
                       <>
-                        you will owe {worker.workerName}{" "}
+                        you {payApplied ? "owe" : "will owe"} {worker.workerName}{" "}
                         <strong>{formatINR(payPreview.debit)}</strong>, carried to next week.
                       </>
                     )}
-                    {payPreview.credit === 0 && payPreview.debit === 0 &&
+                    {payPreview.credit === 0 &&
+                      payPreview.debit === 0 &&
                       "exactly what is due, nothing carried."}
                   </p>
                 )}

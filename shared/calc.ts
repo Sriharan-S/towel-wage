@@ -244,22 +244,45 @@ export function netPayable(wage: number, adj: Adjustments): number {
 }
 
 /**
+ * Cancel a rounding balance that runs both ways.
+ *
+ * Owing someone ₹30 while they owe you ₹10 is just owing them ₹20 — carrying
+ * both figures forward is bookkeeping for its own sake, and it compounds week
+ * after week until neither number means anything. Only one side is ever left
+ * standing.
+ *
+ * Advances are left alone: a loan is a distinct arrangement from the loose
+ * change of rounding, and it is recovered on its own terms.
+ */
+export function netBalance(balance: Balance): Balance {
+  const net = balance.creditOutstanding - balance.debitOutstanding;
+  return {
+    ...balance,
+    creditOutstanding: Math.max(0, net),
+    debitOutstanding: Math.max(0, -net),
+  };
+}
+
+/**
  * Fold one week's adjustments into a running balance.
  *
  * `advanceDelta` is the net of advances handed out minus repayments taken in
  * during the week; recovering from the wage reduces what is still outstanding.
+ *
+ * The result is always netted, so a balance can never be owed in both
+ * directions at once.
  */
 export function applyToBalance(
   balance: Balance,
   adj: Adjustments,
   advanceDelta = 0,
 ): Balance {
-  return {
+  return netBalance({
     creditOutstanding: balance.creditOutstanding + adj.credit - adj.deduct,
     debitOutstanding: balance.debitOutstanding + adj.debit - adj.addback,
     advanceOutstanding:
       balance.advanceOutstanding + advanceDelta - adj.advanceRecovered,
-  };
+  });
 }
 
 /** Net effect of a set of advance/repayment rows on what is owed. */
@@ -409,7 +432,11 @@ export function suggestSettlement(params: {
   /** adjustments already entered by hand, to detect a no-op */
   current?: Adjustments;
 }): Settlement {
-  const { wage, opening, step, mode, current } = params;
+  const { wage, step, mode, current } = params;
+
+  // Netted first, so a balance owed in both directions never produces a deduct
+  // and an add-back that partly undo each other.
+  const opening = netBalance(params.opening);
 
   // 1. Recover an earlier credit, capped at this week's wage.
   const outstandingCredit = Math.max(0, opening.creditOutstanding);

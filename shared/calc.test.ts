@@ -7,6 +7,7 @@ import {
   computeRounding,
   computeTargetPayment,
   lineItemWage,
+  netBalance,
   netPayable,
   roundPayable,
   suggestFromBalance,
@@ -650,15 +651,18 @@ describe("suggestSettlement", () => {
     expect(result.debit).toBe(0);
   });
 
-  it("handles owing and being owed at the same time", () => {
+  it("nets a two-way balance into a single recovery", () => {
+    // They owe ₹50 and you owe ₹21 — that is simply them owing ₹29. One
+    // deduct, no add-back that partly undoes it.
     const result = suggestSettlement({
       wage: 200000,
       opening: balanceOf({ creditOutstanding: 5000, debitOutstanding: 2100 }),
       step: 1,
       mode: "hold",
     });
-    expect(result.deduct).toBe(5000); // recover ₹50
-    expect(result.addback).toBe(2100); // repay ₹21
+    expect(result.deduct).toBe(2900);
+    expect(result.addback).toBe(0);
+    // The payment is the same either way — only the bookkeeping is simpler.
     expect(result.netPayable).toBe(197100); // ₹1,971
     expect(result.remainingCredit).toBe(0);
     expect(result.carriedDebit).toBe(0);
@@ -855,6 +859,69 @@ describe("computeTargetPayment", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// a balance never runs both ways at once
+// ---------------------------------------------------------------------------
+
+describe("netBalance", () => {
+  it("cancels the smaller side", () => {
+    // They owe ₹10, you owe ₹30 -> you owe ₹20.
+    expect(
+      netBalance(balanceOf({ creditOutstanding: 1000, debitOutstanding: 3000 })),
+    ).toEqual(balanceOf({ debitOutstanding: 2000 }));
+
+    // They owe ₹30, you owe ₹10 -> they owe ₹20.
+    expect(
+      netBalance(balanceOf({ creditOutstanding: 3000, debitOutstanding: 1000 })),
+    ).toEqual(balanceOf({ creditOutstanding: 2000 }));
+  });
+
+  it("clears both sides when they match", () => {
+    expect(
+      netBalance(balanceOf({ creditOutstanding: 2500, debitOutstanding: 2500 })),
+    ).toEqual(ZERO_BALANCE);
+  });
+
+  it("leaves an advance out of the netting", () => {
+    // A loan is a separate arrangement from rounding change.
+    const result = netBalance(
+      balanceOf({
+        creditOutstanding: 1000,
+        debitOutstanding: 3000,
+        advanceOutstanding: 100000,
+      }),
+    );
+    expect(result.advanceOutstanding).toBe(100000);
+    expect(result.debitOutstanding).toBe(2000);
+  });
+
+  it("never leaves a balance owed in both directions", () => {
+    // The case from a real screenshot: ₹318.67 owed to you and ₹273.67 owed
+    // by you, which is really ₹45 owed to you.
+    let running = applyToBalance(ZERO_BALANCE, {
+      ...ZERO_ADJUSTMENTS,
+      credit: 31867,
+    });
+    running = applyToBalance(running, { ...ZERO_ADJUSTMENTS, debit: 27367 });
+
+    expect(running.creditOutstanding).toBe(4500);
+    expect(running.debitOutstanding).toBe(0);
+  });
+
+  it("keeps netting as weeks accumulate", () => {
+    const history = [
+      adj({ weekStart: "2026-06-28", credit: 5000 }),
+      adj({ weekStart: "2026-07-05", debit: 8000 }),
+      adj({ weekStart: "2026-07-12", credit: 1000 }),
+    ];
+    // +50, -80, +10 => you owe ₹20, and nothing is owed the other way.
+    const opening = balanceBefore(history, WEEK);
+    expect(opening.debitOutstanding).toBe(2000);
+    expect(opening.creditOutstanding).toBe(0);
+    expect(suggestFromBalance(opening)).toEqual({ deduct: 0, addback: 2000 });
+  });
+});
+
 describe("carry-forward balance", () => {
   it("turns this week's credit into next week's suggested deduct", () => {
     const history = [
@@ -902,16 +969,17 @@ describe("carry-forward balance", () => {
     expect(balanceBefore(history, WEEK).creditOutstanding).toBe(2000);
   });
 
-  it("tracks credit and debit as independent ledgers", () => {
+  it("keeps the running balance to a single figure", () => {
+    // A credit and a debit in the same week cancel: +20 and -10 is just +10.
     let running = applyToBalance(ZERO_BALANCE, {
       ...ZERO_ADJUSTMENTS,
       credit: 2000,
       debit: 1000,
     });
-    expect(running).toEqual(
-      balanceOf({ creditOutstanding: 2000, debitOutstanding: 1000 }),
-    );
+    expect(running).toEqual(balanceOf({ creditOutstanding: 1000 }));
 
+    // Recovering more than was outstanding flips the direction rather than
+    // leaving a negative figure on one side.
     running = applyToBalance(running, {
       ...ZERO_ADJUSTMENTS,
       deduct: 2000,
