@@ -17,6 +17,7 @@ import {
 import { formatINR, parseRupeeInput, roundPaiseTo, toPaise } from "./money";
 import {
   addDays,
+  formatTimeIn,
   formatWeekRange,
   todayISO,
   weekDays,
@@ -80,6 +81,7 @@ function entry(over: Partial<Entry> & Pick<Entry, "entryDate" | "workTypeId" | "
     divisor: 75,
     multiplier: 3500,
     note: null,
+    updatedAt: "2026-07-20 09:00:00",
     ...over,
   };
 }
@@ -144,6 +146,15 @@ describe("dates", () => {
     const lateNightIST = new Date("2026-07-19T19:00:00Z");
     expect(todayISO("Asia/Kolkata", lateNightIST)).toBe("2026-07-20");
     expect(todayISO("UTC", lateNightIST)).toBe("2026-07-19");
+  });
+
+  it("reads a stored timestamp as UTC, not as local time", () => {
+    // SQLite's datetime('now') has no zone marker. Without adding the Z back,
+    // the browser would treat it as local and show a figure hours out.
+    expect(formatTimeIn("2026-07-25 13:12:19", "Asia/Kolkata")).toBe("18:42");
+    expect(formatTimeIn("2026-07-25 13:12:19", "UTC")).toBe("13:12");
+    // An ISO string that already carries a zone is left alone.
+    expect(formatTimeIn("2026-07-25T13:12:19Z", "Asia/Kolkata")).toBe("18:42");
   });
 
   it("crosses month and year boundaries", () => {

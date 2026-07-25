@@ -69,6 +69,7 @@ export interface EntryRow {
   divisor: number;
   multiplier: number;
   note: string | null;
+  updated_at: string;
 }
 
 export interface AdvanceRow {
@@ -155,6 +156,7 @@ export const toEntry = (r: EntryRow): Entry => ({
   divisor: r.divisor,
   multiplier: r.multiplier,
   note: r.note,
+  updatedAt: r.updated_at,
 });
 
 export const toWeekAdjustment = (r: WeekAdjustmentRow): WeekAdjustmentRecord => ({

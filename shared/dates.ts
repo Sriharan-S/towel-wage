@@ -38,6 +38,26 @@ export function todayISO(timeZone: string = DEFAULT_TIMEZONE, now: Date = new Da
   return isoFormatter(timeZone).format(now);
 }
 
+/**
+ * Format a stored UTC timestamp as a clock time in the business timezone.
+ *
+ * SQLite's datetime('now') gives 'YYYY-MM-DD HH:MM:SS' with no zone marker, so
+ * the Z has to be added back before it is parsed — without it the browser would
+ * read the string as local time and show a figure five and a half hours out.
+ */
+export function formatTimeIn(timestamp: string, timeZone: string = DEFAULT_TIMEZONE): string {
+  const normalised = timestamp.includes("T") ? timestamp : timestamp.replace(" ", "T");
+  const withZone = /[Zz]|[+-]\d{2}:?\d{2}$/.test(normalised) ? normalised : `${normalised}Z`;
+  const date = new Date(withZone);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
 /** True if the string is a well-formed, real calendar date. */
 export function isValidISODate(value: unknown): value is ISODate {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;

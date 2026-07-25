@@ -119,6 +119,8 @@ export interface Entry {
   /** paise */
   multiplier: number;
   note: string | null;
+  /** UTC timestamp of when this figure was last written */
+  updatedAt: string;
 }
 
 /** The payment adjustments applied to one worker in one week. */

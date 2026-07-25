@@ -9,6 +9,7 @@ import WorkTypes from "./pages/WorkTypes";
 import HistoryPage from "./pages/History";
 import Settings from "./pages/Settings";
 import Advances from "./pages/Advances";
+import WorkerWage from "./pages/WorkerWage";
 
 // The charting library is a large dependency and only two screens need it.
 // Splitting it out keeps the daily entry screen — the one opened every day on a
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="/entry" element={<DailyEntry />} />
           <Route path="/entry/:date" element={<DailyEntry />} />
           <Route path="/week/:weekStart" element={<Week />} />
+          <Route path="/week/:weekStart/:workerId" element={<WorkerWage />} />
           <Route path="/advances" element={<Advances />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/workers" element={<Workers />} />

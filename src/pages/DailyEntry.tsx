@@ -7,7 +7,6 @@ import {
   ChevronRight,
   Copy,
   Lock,
-  X,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/AppShell";
 import { CalendarPopover, WeekStrip } from "@/components/Calendar";
@@ -35,6 +34,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   addDays,
   formatFullDate,
+  formatTimeIn,
   longDayName,
   relativeDayLabel,
   weekEndOf,
@@ -108,6 +108,19 @@ export default function DailyEntry() {
     return map;
   }, [entries.data]);
 
+  /** When each worker's figures were last written, in the business timezone. */
+  const recordedByWorker = useMemo(() => {
+    const map = new Map<number, string>();
+    const tz = bootstrap.data?.settings.timezone;
+    for (const entry of entries.data ?? []) {
+      const latest = map.get(entry.workerId);
+      if (!latest || entry.updatedAt > latest) map.set(entry.workerId, entry.updatedAt);
+    }
+    return new Map(
+      [...map].map(([workerId, stamp]) => [workerId, formatTimeIn(stamp, tz)] as const),
+    );
+  }, [entries.data, bootstrap.data]);
+
   const workerTotal = (workerId: number, lines: Line[]) => {
     const saved = savedByWorker.get(workerId);
     if (!saved) return 0;
@@ -165,6 +178,7 @@ export default function DailyEntry() {
         worker={current.worker}
         lines={current.lines}
         saved={savedByWorker.get(current.worker.id) ?? new Map()}
+        recordedAt={recordedByWorker.get(current.worker.id)}
         readOnly={isFinalized}
         onClose={() => setEditing(null)}
       />
@@ -332,6 +346,7 @@ function WorkerEntry({
   worker,
   lines,
   saved,
+  recordedAt,
   readOnly,
   onClose,
 }: {
@@ -340,6 +355,8 @@ function WorkerEntry({
   worker: Worker;
   lines: Line[];
   saved: Map<string, number>;
+  /** clock time this worker's day was last written, if it has been */
+  recordedAt?: string;
   readOnly: boolean;
   onClose: () => void;
 }) {
@@ -432,26 +449,8 @@ function WorkerEntry({
 
   return (
     <>
-      <PageHeader
-        title={worker.name}
-        meta={`${relativeDayLabel(date, today)} · ${formatFullDate(date)}`}
-        action={
-          <>
-            <Button icon={<X size={13} />} onClick={cancel}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              icon={<Check size={13} />}
-              onClick={save}
-              loading={saveDay.isPending}
-              disabled={readOnly}
-            >
-              Save
-            </Button>
-          </>
-        }
-      />
+      {/* Actions live in the bar at the foot of the screen, not up here too. */}
+      <PageHeader title={worker.name} meta={`${lines.length} towel types`} />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl px-3 py-3 lg:px-5" ref={firstCell}>
@@ -477,20 +476,15 @@ function WorkerEntry({
                         ? "amount in ₹"
                         : `${formatCount(rate.divisor)} = ${formatINR(rate.multiplier)}`
                   }
-                  total={
+                  value={
                     workType.kind === "formula_sum_ratio"
                       ? pieces > 0
-                        ? `${formatCount(pieces)} ${workType.unitLabel}`
+                        ? `${formatCount(pieces)} · weekly`
                         : undefined
                       : value
-                        ? formatINR(value)
-                        : undefined
-                  }
-                  totalLabel={
-                    workType.kind === "formula_sum_ratio"
-                      ? "paid weekly"
-                      : count > 1
-                        ? `${formatCount(pieces)} across ${count} looms`
+                        ? count > 1
+                          ? `${formatCount(pieces)} = ${formatINR(value)}`
+                          : formatINR(value)
                         : undefined
                   }
                   values={Array.from(
@@ -518,9 +512,35 @@ function WorkerEntry({
           </div>
 
           <p className="mt-2 px-1 text-[11px] ink-4">
-            <kbd className="font-mono">Enter</kbd> moves to the next box.
-            Swipe a row left, or press <kbd className="font-mono">+</kbd>, for a second loom.
+            <kbd className="font-mono">Enter</kbd> moves to the next box. Swipe a row left,
+            or press <kbd className="font-mono">+</kbd>, for another loom.
           </p>
+
+          {/*
+            Which day this is, stated plainly and large. It sits below the
+            figures because that is where the eye ends up, and because getting
+            the day wrong is the one mistake that is expensive to unpick.
+          */}
+          <div
+            className="mt-4 flex items-center gap-3 rounded-md border px-4 py-3"
+            style={{ background: "var(--panel)", borderColor: "var(--line)" }}
+          >
+            <CalendarDays size={20} style={{ color: "var(--accent)" }} />
+            <div className="min-w-0 flex-1">
+              <div className="text-lg font-semibold leading-tight">
+                {relativeDayLabel(date, today)}
+              </div>
+              <div className="text-sm ink-2">
+                {longDayName(date)}, {formatFullDate(date)}
+              </div>
+            </div>
+            {recordedAt && (
+              <div className="shrink-0 text-right">
+                <div className="text-[10px] uppercase tracking-wide ink-4">Recorded</div>
+                <div className="tnum text-sm font-medium ink-2">{recordedAt}</div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

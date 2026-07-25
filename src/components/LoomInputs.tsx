@@ -8,40 +8,41 @@ import { entryCellProps } from "@/lib/gridNav";
  * One line of the daily entry form: a whole row, cut into cells.
  *
  * The towel type's name sits in a solid block of its own colour at the left,
- * which is what makes it findable at a glance while you're working down the
- * list. The value cells are attached to the right edge and fill their cell
- * outright — no little box floating inside a padded row.
+ * which is what makes it findable at a glance while working down the list. The
+ * value cells fill the rest of the row outright — no little box floating inside
+ * a padded row.
  *
- * A worker can run the same type on more than one loom, so the value can be
- * several cells joined by "+". Adding a loom has two routes on purpose: the "+"
- * at the right edge (discoverable everywhere) and a left-swipe on the row
- * (fast, once you know it). Nothing is hidden behind the gesture alone.
+ * A worker can run the same type on several looms, so the value may be more
+ * than one cell. Cells wrap onto a second line rather than shrinking, and the
+ * name block stretches to cover the whole group, so the type is never repeated.
+ *
+ * Adding a loom has two routes on purpose: the "+" at the right edge
+ * (discoverable everywhere) and a left-swipe on the row (fast, once you know
+ * it). Nothing is hidden behind the gesture alone.
  */
 export function EntryRow({
   name,
   color,
   hint,
+  value,
   values,
   onChange,
   onLoomCountChange,
   maxLooms = 6,
   disabled,
-  total,
-  totalLabel,
 }: {
   name: string;
   color: string;
-  /** the rate, shown between the name and the value cells */
+  /** the rate, shown under the name */
   hint?: string;
+  /** what this line is worth so far, shown under the rate */
+  value?: string;
   /** one string per loom, index 0 = loom 1 */
   values: string[];
-  onChange: (loomIndex: number, value: string) => void;
+  onChange: (loomIndex: number, next: string) => void;
   onLoomCountChange: (count: number) => void;
   maxLooms?: number;
   disabled?: boolean;
-  /** what this line is worth today, shown under the hint */
-  total?: string;
-  totalLabel?: string;
 }) {
   const looms = Math.max(1, values.length);
   const ink = readableOn(color);
@@ -85,7 +86,7 @@ export function EntryRow({
 
   return (
     <div
-      className="flex items-stretch overflow-hidden border-b"
+      className="flex items-stretch overflow-hidden border-b last:border-b-0"
       style={{
         borderColor: "var(--line)",
         transform: dragX ? `translateX(${dragX * 0.3}px)` : undefined,
@@ -96,67 +97,65 @@ export function EntryRow({
       onTouchEnd={endTouch}
       onTouchCancel={endTouch}
     >
-      {/* Name, in a solid block of the type's own colour */}
+      {/* Name block — stretches over however many rows of cells there are */}
       <div
-        className="flex w-28 shrink-0 flex-col justify-center px-2.5 py-2 sm:w-36"
+        className="flex w-28 shrink-0 flex-col justify-center gap-0.5 px-2.5 py-2.5 sm:w-36"
         style={{ background: color, color: ink }}
       >
-        <span className="truncate text-[13px] font-semibold leading-tight" title={name}>
+        <span className="truncate text-sm font-semibold leading-tight" title={name}>
           {name}
         </span>
         {hint && (
-          <span className="truncate text-[10px] leading-tight" style={{ opacity: 0.75 }}>
+          <span className="truncate text-[10px] leading-tight" style={{ opacity: 0.8 }}>
             {hint}
           </span>
         )}
-      </div>
-
-      {/* What it is worth so far */}
-      <div className="flex min-w-0 flex-1 flex-col justify-center px-2.5">
-        {total && (
-          <>
-            <span className="tnum text-[13px] font-medium leading-tight">{total}</span>
-            {totalLabel && (
-              <span className="truncate text-[10px] leading-tight ink-4">{totalLabel}</span>
-            )}
-          </>
+        {value && (
+          <span className="tnum truncate text-xs font-semibold leading-tight">{value}</span>
         )}
       </div>
 
-      {/* Value cells, attached to the right edge */}
-      {values.map((value, index) => (
-        <div
-          key={index}
-          className="flex shrink-0 items-stretch border-l"
-          style={{ borderColor: "var(--line)" }}
-        >
-          <input
-            type="text"
-            inputMode="decimal"
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck={false}
-            value={value}
-            placeholder="0"
-            disabled={disabled}
-            aria-label={looms > 1 ? `${name}, loom ${index + 1}` : name}
-            onChange={(e) => onChange(index, e.target.value)}
-            onFocus={(e) => e.currentTarget.select()}
-            className={cx(
-              "tnum h-full bg-transparent px-2 text-right text-base font-semibold outline-none",
-              "placeholder:font-normal placeholder:text-[color:var(--ink-4)]",
-              "focus:bg-[color:var(--accent-soft)] disabled:opacity-50",
-              looms > 1 ? "w-16" : "w-24",
-            )}
-            style={{ color: "var(--ink)" }}
-            {...entryCellProps}
-          />
-        </div>
-      ))}
+      {/*
+        Value cells. Two per row on a phone, three once there is room; more
+        looms wrap to a new line instead of squeezing every box thinner.
+      */}
+      <div className="grid min-w-0 flex-1 grid-cols-2 sm:grid-cols-3">
+        {values.map((cell, index) => (
+          <div
+            key={index}
+            className="flex items-stretch border-b border-l last:border-b-0"
+            style={{ borderColor: "var(--line)" }}
+          >
+            <input
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              value={cell}
+              placeholder="0"
+              disabled={disabled}
+              aria-label={looms > 1 ? `${name}, loom ${index + 1}` : name}
+              onChange={(e) => onChange(index, e.target.value)}
+              onFocus={(e) => e.currentTarget.select()}
+              className={cx(
+                "tnum w-full min-w-0 bg-transparent px-1 py-3 text-center text-lg font-semibold outline-none",
+                "placeholder:font-normal placeholder:text-[color:var(--ink-4)]",
+                "focus:bg-[color:var(--accent-soft)] disabled:opacity-50",
+              )}
+              style={{ color: "var(--ink)" }}
+              {...entryCellProps}
+            />
+          </div>
+        ))}
+
+        {/* Fill the tail of the last line so the grid keeps its rule pattern */}
+        {values.length % (values.length > 4 ? 3 : 2) !== 0 && <span aria-hidden />}
+      </div>
 
       {/* Loom control, at the very edge */}
       <div
-        className="flex w-7 shrink-0 flex-col border-l"
+        className="flex w-8 shrink-0 flex-col border-l"
         style={{ borderColor: "var(--line)" }}
       >
         <button
@@ -171,7 +170,7 @@ export function EntryRow({
           )}
           style={{ color: "var(--ink-3)" }}
         >
-          <Plus size={13} />
+          <Plus size={15} />
         </button>
         {canRemove && (
           <button
@@ -182,7 +181,7 @@ export function EntryRow({
             className="flex flex-1 items-center justify-center border-t transition-colors hover:bg-[color:var(--panel-3)]"
             style={{ color: "var(--ink-3)", borderColor: "var(--line)" }}
           >
-            <Minus size={13} />
+            <Minus size={15} />
           </button>
         )}
       </div>

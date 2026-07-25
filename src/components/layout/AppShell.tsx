@@ -26,16 +26,16 @@ interface NavItem {
 function useNavItems(): NavItem[] {
   const today = useToday();
   return [
-    { to: "/", label: "Dashboard", short: "Stats", icon: <BarChart3 size={15} />, primary: true },
-    { to: "/entry", label: "Daily entry", short: "Entry", icon: <PencilLine size={15} />, primary: true },
+    { to: "/", label: "Dashboard", short: "Stats", icon: <BarChart3 size={19} />, primary: true },
+    { to: "/entry", label: "Daily entry", short: "Entry", icon: <PencilLine size={19} />, primary: true },
     {
       to: `/week/${weekStartOf(today)}`,
       label: "Wages",
       short: "Wages",
-      icon: <Wallet size={15} />,
+      icon: <Wallet size={19} />,
       primary: true,
     },
-    { to: "/advances", label: "Advances", short: "Loans", icon: <HandCoins size={15} />, primary: true },
+    { to: "/advances", label: "Advances", short: "Loans", icon: <HandCoins size={19} />, primary: true },
     { to: "/history", label: "History", short: "History", icon: <History size={15} /> },
     { to: "/workers", label: "Workers", short: "Workers", icon: <Users size={15} /> },
     { to: "/types", label: "Towel types", short: "Types", icon: <Layers size={15} /> },
@@ -87,7 +87,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <NavLink
               key={item.label}
               to={item.to}
-              className="flex h-7 items-center gap-2.5 rounded px-2 text-xs font-medium transition-colors"
+              className="flex h-9 items-center gap-2.5 rounded px-2 text-[13px] font-medium transition-colors"
               style={
                 isActive(item.to)
                   ? { background: "var(--accent-soft)", color: "var(--accent)" }
@@ -116,7 +116,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <NavLink
               key={item.label}
               to={item.to}
-              className="flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] font-medium"
+              className="flex flex-1 flex-col items-center justify-center gap-1 py-2.5 text-[11px] font-medium"
               style={isActive(item.to) ? { color: "var(--accent)" } : { color: "var(--ink-3)" }}
             >
               {item.icon}
@@ -125,7 +125,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           ))}
         <NavLink
           to="/settings"
-          className="flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] font-medium"
+          className="flex flex-1 flex-col items-center justify-center gap-1 py-2.5 text-[11px] font-medium"
           style={
             ["/settings", "/workers", "/types", "/history"].some((p) =>
               location.pathname.startsWith(p),
@@ -134,7 +134,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               : { color: "var(--ink-3)" }
           }
         >
-          <SettingsIcon size={15} />
+          <SettingsIcon size={19} />
           More
         </NavLink>
       </nav>
