@@ -16,8 +16,7 @@
     {
       "binding": "DB",
       "database_name": "towel-wage",
-      // Replaced with the real id by `wrangler d1 create towel-wage`.
-      "database_id": "REPLACE_WITH_DATABASE_ID",
+      "database_id": "40bc2346-46c2-45bc-934a-8797c21186d8",
       "migrations_dir": "migrations"
     }
   ]
