@@ -17,7 +17,7 @@ import {
 import { useSetAdjustments, useSettleWeek, useToday, useWeek } from "@/lib/queries";
 import { formatWeekRange, relativeWeekLabel, weekStartOf } from "@shared/dates";
 import { formatCount, formatINR, parseRupeeInput, toRupees } from "@shared/money";
-import { computeRounding } from "@shared/calc";
+import { computeRounding, computeTargetPayment } from "@shared/calc";
 import type { Adjustments } from "@shared/types";
 
 const ROUNDING_STEPS = [10, 50, 100];
@@ -66,6 +66,8 @@ export default function WorkerWage() {
     addback: "",
     advanceRecovered: "",
   });
+  /** The "pay exactly this" box, kept separate from the adjustment fields. */
+  const [payDraft, setPayDraft] = useState("");
 
   useEffect(() => {
     if (!worker) return;
@@ -141,6 +143,25 @@ export default function WorkerWage() {
           toast(error instanceof Error ? error.message : "Could not save", { tone: "error" }),
       },
     );
+
+  /** Live read-out of what naming this amount would book, before applying it. */
+  const payPreview = useMemo(() => {
+    const target = parseRupeeInput(payDraft);
+    if (target <= 0) return null;
+    return computeTargetPayment(worker.wage, { ...parsed }, target);
+  }, [payDraft, parsed, worker.wage]);
+
+  const applyTarget = () => {
+    if (!payPreview) return;
+    setDraft((c) => ({
+      ...c,
+      credit: payPreview.credit ? String(toRupees(payPreview.credit)) : "",
+      debit: payPreview.debit ? String(toRupees(payPreview.debit)) : "",
+    }));
+    save({ credit: payPreview.credit, debit: payPreview.debit });
+    setPayDraft("");
+    toast(`Set to pay ${formatINR(payPreview.netPayable)}.`, { tone: "success" });
+  };
 
   const applyRounding = (step: number, direction: "up" | "down") => {
     const result = computeRounding(worker.wage, { ...parsed }, step, direction);
@@ -316,6 +337,69 @@ export default function WorkerWage() {
                 })
               }
             />
+          )}
+
+          {/* Name the payment yourself */}
+          {!readOnly && (
+            <Section title="Pay a specific amount">
+              <div className="p-3">
+                <p className="text-xs ink-2">
+                  Type what you intend to hand over and the difference is booked for you —
+                  over the wage and {worker.workerName} owes you the excess, under it and you
+                  owe them the shortfall.
+                </p>
+                <div className="mt-2 flex items-end gap-2">
+                  <label className="min-w-0 flex-1">
+                    <span className="mb-1 block text-[11px] font-medium ink-2">
+                      Amount to pay
+                    </span>
+                    <NumberInput
+                      value={payDraft}
+                      placeholder={String(toRupees(worker.settlement.netPayable))}
+                      aria-label={`Amount to pay ${worker.workerName}`}
+                      onChange={(e) => setPayDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") applyTarget();
+                      }}
+                    />
+                  </label>
+                  <Button
+                    size="md"
+                    variant="primary"
+                    onClick={applyTarget}
+                    disabled={parseRupeeInput(payDraft) <= 0}
+                  >
+                    Apply
+                  </Button>
+                </div>
+
+                {payPreview && (
+                  <p
+                    className="mt-2 rounded border px-2.5 py-1.5 text-xs"
+                    style={{
+                      background: "var(--accent-soft)",
+                      borderColor: "var(--accent-line)",
+                    }}
+                  >
+                    Pay <strong>{formatINR(payPreview.netPayable)}</strong> —{" "}
+                    {payPreview.credit > 0 && (
+                      <>
+                        {worker.workerName} will owe you{" "}
+                        <strong>{formatINR(payPreview.credit)}</strong>, recovered next week.
+                      </>
+                    )}
+                    {payPreview.debit > 0 && (
+                      <>
+                        you will owe {worker.workerName}{" "}
+                        <strong>{formatINR(payPreview.debit)}</strong>, carried to next week.
+                      </>
+                    )}
+                    {payPreview.credit === 0 && payPreview.debit === 0 &&
+                      "exactly what is due, nothing carried."}
+                  </p>
+                )}
+              </div>
+            </Section>
           )}
 
           {/* Adjustments */}

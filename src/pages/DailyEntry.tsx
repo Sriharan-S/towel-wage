@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
+  ArrowUpDown,
   CalendarDays,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Copy,
   Lock,
 } from "lucide-react";
@@ -17,6 +20,7 @@ import {
   ConfirmSheet,
   EmptyState,
   ErrorState,
+  IconButton,
   Spinner,
   cx,
   useToast,
@@ -25,10 +29,12 @@ import {
   useBootstrap,
   useCopyDay,
   useEntriesForDate,
+  useReorderRates,
   useSaveDay,
   useToday,
   useWeek,
 } from "@/lib/queries";
+import { ENTRY_GRID_END } from "@/lib/gridNav";
 import { api, type DayEntryInput } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -212,18 +218,21 @@ export default function DailyEntry() {
         }
       >
         <div className="flex items-center gap-2">
+          {/* The strip handles days; the arrows jump whole weeks. */}
           <Button
             icon={<ChevronLeft size={13} />}
-            onClick={() => goto(addDays(date, -1))}
-            aria-label="Previous day"
+            onClick={() => goto(addDays(date, -7))}
+            aria-label="Previous week"
+            title="Previous week"
           />
           <div className="min-w-0 flex-1">
             <WeekStrip value={date} today={today} markedDays={markedDays} onSelect={goto} />
           </div>
           <Button
             icon={<ChevronRight size={13} />}
-            onClick={() => goto(addDays(date, 1))}
-            aria-label="Next day"
+            onClick={() => goto(addDays(date, 7))}
+            aria-label="Next week"
+            title="Next week"
           />
           <CalendarPopover value={date} today={today} markedDays={markedDays} onSelect={goto}>
             {({ open, isOpen }) => (
@@ -376,6 +385,41 @@ function WorkerEntry({
     return map;
   });
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [confirmSave, setConfirmSave] = useState(false);
+  const [reordering, setReordering] = useState(false);
+  const [order, setOrder] = useState<number[]>(() => lines.map((l) => l.workType.id));
+  const reorderRates = useReorderRates();
+
+  /**
+   * Pressing Enter on the last box means "that's the lot" — offer to save
+   * rather than leaving the cursor stranded at the bottom of the form.
+   */
+  useEffect(() => {
+    const onEnd = () => {
+      if (!readOnly) setConfirmSave(true);
+    };
+    document.addEventListener(ENTRY_GRID_END, onEnd);
+    return () => document.removeEventListener(ENTRY_GRID_END, onEnd);
+  }, [readOnly]);
+
+  const ordered = useMemo(() => {
+    const byId = new Map(lines.map((l) => [l.workType.id, l]));
+    const known = order.map((id) => byId.get(id)).filter((l): l is Line => Boolean(l));
+    // Anything assigned since the order was captured goes on the end.
+    const extra = lines.filter((l) => !order.includes(l.workType.id));
+    return [...known, ...extra];
+  }, [lines, order]);
+
+  const moveLine = (index: number, delta: number) => {
+    const next = [...ordered.map((l) => l.workType.id)];
+    const target = index + delta;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    setOrder(next);
+    // Persist straight away: the order is a setting, not part of the day's
+    // figures, so it should not wait on Save.
+    reorderRates.mutate({ workerId: worker.id, workTypeIds: next });
+  };
 
   const initial = useRef(values);
   const dirty = useMemo(
@@ -449,8 +493,22 @@ function WorkerEntry({
 
   return (
     <>
-      {/* Actions live in the bar at the foot of the screen, not up here too. */}
-      <PageHeader title={worker.name} meta={`${lines.length} towel types`} />
+      {/* Save/Cancel live in the bar at the foot of the screen, not up here too. */}
+      <PageHeader
+        title={worker.name}
+        meta={`${lines.length} towel types`}
+        action={
+          lines.length > 1 && !readOnly ? (
+            <Button
+              icon={<ArrowUpDown size={13} />}
+              onClick={() => setReordering((v) => !v)}
+              title="Change the order these are entered in"
+            >
+              {reordering ? "Done" : "Reorder"}
+            </Button>
+          ) : undefined
+        }
+      />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl px-3 py-3 lg:px-5" ref={firstCell}>
@@ -458,10 +516,43 @@ function WorkerEntry({
             className="overflow-hidden rounded-md border"
             style={{ background: "var(--panel)", borderColor: "var(--line)" }}
           >
-            {lines.map(({ rate, workType }) => {
+            {ordered.map(({ rate, workType }, index) => {
               const count = looms[workType.id] ?? 1;
               const value = lineValue(workType.kind, workType.id, rate.unitPrice);
               const pieces = lineCount(workType.id);
+
+              if (reordering) {
+                return (
+                  <div
+                    key={workType.id}
+                    className="flex items-center gap-2 border-b px-3 py-2 last:border-b-0"
+                    style={{ borderColor: "var(--line)" }}
+                  >
+                    <span
+                      className="h-8 w-1.5 shrink-0 rounded-full"
+                      style={{ background: workType.color }}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                      {workType.name}
+                    </span>
+                    <span className="tnum text-[11px] ink-4">{index + 1}</span>
+                    <IconButton
+                      label={`Move ${workType.name} up`}
+                      disabled={index === 0}
+                      onClick={() => moveLine(index, -1)}
+                    >
+                      <ChevronUp size={15} />
+                    </IconButton>
+                    <IconButton
+                      label={`Move ${workType.name} down`}
+                      disabled={index === ordered.length - 1}
+                      onClick={() => moveLine(index, 1)}
+                    >
+                      <ChevronDown size={15} />
+                    </IconButton>
+                  </div>
+                );
+              }
 
               return (
                 <EntryRow
@@ -512,8 +603,15 @@ function WorkerEntry({
           </div>
 
           <p className="mt-2 px-1 text-[11px] ink-4">
-            <kbd className="font-mono">Enter</kbd> moves to the next box. Swipe a row left,
-            or press <kbd className="font-mono">+</kbd>, for another loom.
+            {reordering ? (
+              <>The order set here is the order you'll enter them in from now on.</>
+            ) : (
+              <>
+                <kbd className="font-mono">Enter</kbd> moves to the next box, and again on the
+                last one to finish. Swipe a row left, or press{" "}
+                <kbd className="font-mono">+</kbd>, for another loom.
+              </>
+            )}
           </p>
 
           {/*
@@ -580,6 +678,25 @@ function WorkerEntry({
         confirmLabel="Discard"
         destructive
         description={`${worker.name}'s figures have been changed but not saved. Going back now will lose them.`}
+      />
+
+      <ConfirmSheet
+        open={confirmSave}
+        onClose={() => setConfirmSave(false)}
+        loading={saveDay.isPending}
+        confirmLabel={`Save ${formatINR(total)}`}
+        title={`Finished with ${worker.name}?`}
+        description={
+          <>
+            That's the last box. Saving records{" "}
+            <strong>{formatINR(total)}</strong> for {worker.name} on{" "}
+            {formatFullDate(date)} and takes you back to the list.
+          </>
+        }
+        onConfirm={() => {
+          setConfirmSave(false);
+          save();
+        }}
       />
     </>
   );

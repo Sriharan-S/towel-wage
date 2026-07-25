@@ -157,7 +157,34 @@ export function Calendar({
   );
 }
 
-/** Calendar in a popover, anchored to a trigger. */
+/**
+ * True on a touch screen.
+ *
+ * Used to hand date picking to the operating system: on a phone the native
+ * wheel is bigger, familiar and — unlike a floating panel — cannot end up half
+ * off the edge of the screen.
+ */
+function useCoarsePointer(): boolean {
+  const [coarse, setCoarse] = useState(
+    () => typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches,
+  );
+  useEffect(() => {
+    const query = window.matchMedia("(pointer: coarse)");
+    const onChange = (e: MediaQueryListEvent) => setCoarse(e.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  return coarse;
+}
+
+/**
+ * Date picking, anchored to a trigger.
+ *
+ * On touch this is a transparent native date input laid over the trigger, so
+ * tapping it opens the OS picker. On a mouse it is the custom month grid, which
+ * can show which days already have entries — worth the panel there, because a
+ * desktop has room for it and the pointer can hit small targets.
+ */
 export function CalendarPopover({
   value,
   onSelect,
@@ -175,9 +202,10 @@ export function CalendarPopover({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const coarse = useCoarsePointer();
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || coarse) return;
     const onDown = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
@@ -188,14 +216,34 @@ export function CalendarPopover({
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [open]);
+  }, [open, coarse]);
+
+  if (coarse) {
+    return (
+      <div className="relative">
+        {children({ open: () => {}, isOpen: false })}
+        <input
+          type="date"
+          value={value}
+          max={maxDate}
+          aria-label="Pick a date"
+          onChange={(e) => e.target.value && onSelect(e.target.value)}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="relative" ref={ref}>
       {children({ open: () => setOpen((v) => !v), isOpen: open })}
       {open && (
         <div
-          className="absolute left-1/2 top-full z-50 mt-1 -translate-x-1/2 rounded-md border shadow-xl"
+          /*
+            Pinned to the trigger's right edge and capped at the viewport width,
+            so it can never run off the side of a narrow window.
+          */
+          className="absolute right-0 top-full z-50 mt-1 max-w-[calc(100vw-1.5rem)] overflow-auto rounded-md border shadow-xl"
           style={{ background: "var(--panel)", borderColor: "var(--line-strong)" }}
         >
           <Calendar

@@ -139,6 +139,38 @@ app.get("/:id/rates", async (c) => {
 });
 
 /**
+ * Reorder a worker's towel types.
+ *
+ * The order is the order they are entered in each day, so it wants to match
+ * however the work actually comes off the floor. Changing it here affects every
+ * future day; past entries are untouched, since order is presentation only.
+ */
+app.put("/:id/rates/order", async (c) => {
+  const id = readId(c);
+  const body = await readJson(
+    c,
+    z.object({ workTypeIds: z.array(z.number().int().positive()).min(1) }),
+  );
+
+  await c.env.DB.batch(
+    body.workTypeIds.map((workTypeId, index) =>
+      c.env.DB
+        .prepare(
+          "UPDATE worker_rates SET sort_order = ? WHERE worker_id = ? AND work_type_id = ?",
+        )
+        .bind(index + 1, id, workTypeId),
+    ),
+  );
+
+  const { results } = await c.env.DB.prepare(
+    "SELECT * FROM worker_rates WHERE worker_id = ? ORDER BY sort_order, id",
+  )
+    .bind(id)
+    .all<WorkerRateRow>();
+  return c.json(results.map(toWorkerRate));
+});
+
+/**
  * Replace the worker's whole assignment list in one shot.
  *
  * Rates are only ever read for *future* entries: every entry snapshots the rate

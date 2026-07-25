@@ -202,6 +202,11 @@ export const useDeleteWorker = () => useConfigMutation(api.workers.remove);
 
 export const useReorderWorkers = () => useConfigMutation(api.workers.reorder);
 
+export const useReorderRates = () =>
+  useConfigMutation(({ workerId, workTypeIds }: { workerId: number; workTypeIds: number[] }) =>
+    api.workers.reorderRates(workerId, workTypeIds),
+  );
+
 export const useSetRates = () =>
   useConfigMutation(({ workerId, rates }: { workerId: number; rates: RateInput[] }) =>
     api.workers.setRates(workerId, rates),

@@ -197,6 +197,9 @@ export const api = {
     rates: (id: number) => request<WorkerRate[]>(`/workers/${id}/rates`),
     setRates: (id: number, rates: RateInput[]) =>
       send<WorkerRate[]>("PUT", `/workers/${id}/rates`, { rates }),
+    /** Set the order this worker's towel types are entered in each day. */
+    reorderRates: (id: number, workTypeIds: number[]) =>
+      send<WorkerRate[]>("PUT", `/workers/${id}/rates/order`, { workTypeIds }),
   },
 
   workTypes: {

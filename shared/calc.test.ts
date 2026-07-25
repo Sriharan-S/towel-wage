@@ -5,6 +5,7 @@ import {
   balanceBefore,
   buildLineItems,
   computeRounding,
+  computeTargetPayment,
   lineItemWage,
   netPayable,
   roundPayable,
@@ -742,6 +743,66 @@ describe("advances", () => {
       ]),
     );
     expect(after.advanceOutstanding).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// naming the payment yourself
+// ---------------------------------------------------------------------------
+
+describe("computeTargetPayment", () => {
+  const WAGE = 222900; // ₹2,229
+
+  it("books the excess as a credit when you pay over the wage", () => {
+    // Hand over ₹2,260 against a ₹2,229 wage -> the worker owes you ₹31.
+    const result = computeTargetPayment(WAGE, ZERO_ADJUSTMENTS, 226000);
+    expect(result.credit).toBe(3100);
+    expect(result.debit).toBe(0);
+    expect(result.netPayable).toBe(226000);
+    expect(netPayable(WAGE, { ...ZERO_ADJUSTMENTS, credit: result.credit })).toBe(226000);
+  });
+
+  it("books the shortfall as a debit when you pay under the wage", () => {
+    // Hand over ₹2,220 -> you owe the worker ₹9.
+    const result = computeTargetPayment(WAGE, ZERO_ADJUSTMENTS, 222000);
+    expect(result.debit).toBe(900);
+    expect(result.credit).toBe(0);
+    expect(netPayable(WAGE, { ...ZERO_ADJUSTMENTS, debit: result.debit })).toBe(222000);
+  });
+
+  it("books nothing when the amount already matches", () => {
+    const result = computeTargetPayment(WAGE, ZERO_ADJUSTMENTS, WAGE);
+    expect(result.credit).toBe(0);
+    expect(result.debit).toBe(0);
+  });
+
+  it("measures against the adjustments already entered, not the raw wage", () => {
+    // ₹2,229 wage, ₹500 advance recovered -> ₹1,729 is what would change hands.
+    // Naming ₹1,700 should hold back ₹29, not ₹529.
+    const adj = { ...ZERO_ADJUSTMENTS, advanceRecovered: 50000 };
+    const result = computeTargetPayment(WAGE, adj, 170000);
+    expect(result.settled).toBe(172900);
+    expect(result.debit).toBe(2900);
+    expect(result.credit).toBe(0);
+    expect(netPayable(WAGE, { ...adj, debit: result.debit })).toBe(170000);
+  });
+
+  it("accounts for a deduct and an add-back together", () => {
+    const adj = { ...ZERO_ADJUSTMENTS, deduct: 8500, addback: 2100 };
+    // 222900 - 8500 + 2100 = 216500
+    const result = computeTargetPayment(WAGE, adj, 220000);
+    expect(result.settled).toBe(216500);
+    expect(result.credit).toBe(3500);
+    expect(netPayable(WAGE, { ...adj, credit: result.credit })).toBe(220000);
+  });
+
+  it("leaves the worker owing the excess on the running balance", () => {
+    const result = computeTargetPayment(WAGE, ZERO_ADJUSTMENTS, 226000);
+    const after = applyToBalance(ZERO_BALANCE, {
+      ...ZERO_ADJUSTMENTS,
+      credit: result.credit,
+    });
+    expect(after.creditOutstanding).toBe(3100);
   });
 });
 

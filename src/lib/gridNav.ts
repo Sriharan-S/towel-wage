@@ -17,6 +17,15 @@ function cells(): HTMLInputElement[] {
   ).filter((el) => !el.disabled);
 }
 
+/**
+ * Fired when Enter is pressed on the last cell of the grid.
+ *
+ * The form listens for this and offers to save — pressing Enter once more at
+ * the bottom of the list is the natural way to say "that's the lot", and it
+ * saves reaching for a button after typing a column of numbers.
+ */
+export const ENTRY_GRID_END = "entry-grid-end";
+
 function move(current: HTMLElement, delta: number) {
   const all = cells();
   const index = all.indexOf(current as HTMLInputElement);
@@ -26,6 +35,7 @@ function move(current: HTMLElement, delta: number) {
   if (!next) {
     // At the end of the grid, commit the last value rather than trapping focus.
     (current as HTMLInputElement).blur();
+    if (delta > 0) document.dispatchEvent(new CustomEvent(ENTRY_GRID_END));
     return;
   }
   next.focus();

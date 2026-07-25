@@ -345,6 +345,34 @@ export function computeRounding(
   };
 }
 
+/**
+ * Work out the credit or debit that makes the payment land on an exact figure.
+ *
+ * The inverse of the rounding buttons: instead of picking a step and letting
+ * the app choose the amount, you name the amount you intend to hand over and
+ * the difference is booked automatically. Paying more than the wage leaves the
+ * worker owing you the excess (a credit); paying less leaves you owing them the
+ * shortfall (a debit).
+ *
+ * Everything else already entered — an advance recovered, a credit clawed back,
+ * a debit repaid — is taken off first, so the figure you type is what actually
+ * changes hands, not a subtotal.
+ */
+export function computeTargetPayment(
+  wage: number,
+  adj: Adjustments,
+  target: number,
+): { credit: number; debit: number; netPayable: number; settled: number } {
+  const settled = wage - adj.deduct + adj.addback - adj.advanceRecovered;
+  const delta = Math.round(target) - settled;
+  return {
+    credit: delta > 0 ? delta : 0,
+    debit: delta < 0 ? -delta : 0,
+    netPayable: Math.round(target),
+    settled,
+  };
+}
+
 const DIRECTION_FOR_MODE: Record<RoundingMode, "up" | "down" | "nearest"> = {
   hold: "down",
   nearest: "nearest",
