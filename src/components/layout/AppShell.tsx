@@ -55,10 +55,16 @@ export function AppShell({ children }: { children: ReactNode }) {
       : location.pathname.startsWith(to.split("/").slice(0, 2).join("/"));
 
   return (
-    <div className="min-h-dvh">
+    /*
+      The shell owns the viewport: it never scrolls. Each page scrolls inside
+      its own body, so the tab bar and the page header stay put no matter how
+      long the content is — on a phone that matters, because the tab bar is the
+      only way back out of a screen.
+    */
+    <div className="flex h-dvh flex-col overflow-hidden">
       {/* Desktop rail */}
       <aside
-        className="no-print fixed inset-y-0 left-0 hidden w-52 flex-col border-r lg:flex"
+        className="no-print fixed inset-y-0 left-0 z-20 hidden w-52 flex-col border-r lg:flex"
         style={{ background: "var(--panel)", borderColor: "var(--line)" }}
       >
         <div
@@ -97,11 +103,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="mt-auto px-3 py-2 text-[10px] ink-4">Sun–Sat pay weeks</div>
       </aside>
 
-      <main className="pb-14 lg:ml-52 lg:pb-0">{children}</main>
+      <main className="flex min-h-0 flex-1 flex-col lg:ml-52">{children}</main>
 
-      {/* Phone tab bar */}
+      {/* Phone tab bar — a flex sibling, so it is always on screen */}
       <nav
-        className="no-print safe-bottom fixed inset-x-0 bottom-0 z-40 flex border-t lg:hidden"
+        className="no-print safe-bottom z-40 flex shrink-0 border-t lg:hidden"
         style={{ background: "var(--panel)", borderColor: "var(--line)" }}
       >
         {items
@@ -154,7 +160,7 @@ export function PageHeader({
 }) {
   return (
     <header
-      className="safe-top sticky top-0 z-30 border-b"
+      className="safe-top z-30 shrink-0 border-b"
       style={{ background: "var(--panel)", borderColor: "var(--line)" }}
     >
       <div className="mx-auto flex h-11 max-w-[1400px] items-center gap-3 px-3 lg:px-5">
@@ -175,6 +181,10 @@ export function PageHeader({
   );
 }
 
+/**
+ * The one scrollable region on a page. The shell itself is fixed, so anything
+ * that overflows has to scroll here.
+ */
 export function PageBody({
   children,
   className,
@@ -183,8 +193,10 @@ export function PageBody({
   className?: string;
 }) {
   return (
-    <div className={cx("mx-auto max-w-[1400px] px-3 py-3 lg:px-5 lg:py-4", className)}>
-      {children}
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className={cx("mx-auto max-w-[1400px] px-3 py-3 lg:px-5 lg:py-4", className)}>
+        {children}
+      </div>
     </div>
   );
 }

@@ -111,6 +111,29 @@ export function useChartTheme(): ChartTheme {
 }
 
 /**
+ * Ink that stays legible on a solid fill of `hex`.
+ *
+ * Used where a label sits *inside* a coloured block — the one place a label may
+ * wear the data colour's counterpart rather than a text token. The threshold is
+ * the relative-luminance crossover where black and white give equal contrast,
+ * so whichever this returns is always the better of the two.
+ */
+export function readableOn(hex: string): string {
+  const clean = hex.replace("#", "");
+  if (clean.length !== 6) return "#ffffff";
+
+  const channel = (offset: number) => {
+    const value = parseInt(clean.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+  };
+
+  const luminance =
+    0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
+
+  return luminance + 0.05 > Math.sqrt(0.05 * 1.05) ? "#101014" : "#ffffff";
+}
+
+/**
  * Bucket a value onto the sequential ramp.
  * Zero returns null so "no work recorded" is drawn as an empty cell rather than
  * the palest blue — an absent day and a quiet day must not look the same.

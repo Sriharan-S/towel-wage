@@ -7,17 +7,19 @@ import {
   ChevronRight,
   Copy,
   Lock,
+  X,
 } from "lucide-react";
-import { PageBody, PageHeader } from "@/components/layout/AppShell";
+import { PageHeader } from "@/components/layout/AppShell";
 import { CalendarPopover, WeekStrip } from "@/components/Calendar";
-import { LoomInputs } from "@/components/LoomInputs";
+import { EntryRow } from "@/components/LoomInputs";
 import {
   Badge,
   Button,
+  ConfirmSheet,
   EmptyState,
   ErrorState,
-  Panel,
   Spinner,
+  cx,
   useToast,
 } from "@/components/ui";
 import {
@@ -28,9 +30,7 @@ import {
   useToday,
   useWeek,
 } from "@/lib/queries";
-import { entryCellProps } from "@/lib/gridNav";
-import type { DayEntryInput } from "@/lib/api";
-import { api } from "@/lib/api";
+import { api, type DayEntryInput } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import {
   addDays,
@@ -41,11 +41,15 @@ import {
   weekStartOf,
 } from "@shared/dates";
 import { formatCount, formatINR, parseCountInput, parseRupeeInput } from "@shared/money";
-import type { WorkKind } from "@shared/types";
+import type { WorkKind, Worker, WorkType, WorkerRate } from "@shared/types";
 
-/** Cell key: worker, towel type, loom. */
-const key = (workerId: number, typeId: number, loom: number) =>
-  `${workerId}:${typeId}:${loom}`;
+/** Cell key: towel type, loom. Scoped to the worker being edited. */
+const cellKey = (typeId: number, loom: number) => `${typeId}:${loom}`;
+
+interface Line {
+  rate: WorkerRate;
+  workType: WorkType;
+}
 
 export default function DailyEntry() {
   const params = useParams<{ date?: string }>();
@@ -57,11 +61,12 @@ export default function DailyEntry() {
   const bootstrap = useBootstrap();
   const entries = useEntriesForDate(date);
   const week = useWeek(weekStart);
-  const saveDay = useSaveDay(date);
   const copyDay = useCopyDay();
   const { toast } = useToast();
 
-  /** Which days of this week already have something recorded. */
+  /** Which worker is being edited; null shows the list. */
+  const [editing, setEditing] = useState<number | null>(null);
+
   const weekEntries = useQuery({
     queryKey: ["entries", "range", weekStart],
     queryFn: () => api.entries.forRange(weekStart, weekEndOf(weekStart)),
@@ -71,123 +76,59 @@ export default function DailyEntry() {
     [weekEntries.data],
   );
 
-  const [values, setValues] = useState<Record<string, string>>({});
-  /** Extra looms added on the fly, beyond the worker's configured count. */
-  const [loomOverrides, setLoomOverrides] = useState<Record<string, number>>({});
-  const savedRef = useRef<Record<string, string>>({});
-
-  // Reload the form when the day's data arrives or the date changes.
-  useEffect(() => {
-    if (!entries.data) return;
-    const next: Record<string, string> = {};
-    const looms: Record<string, number> = {};
-    for (const entry of entries.data) {
-      const value = entry.kind === "direct_sum" ? entry.amount / 100 : entry.quantity;
-      if (value !== 0) next[key(entry.workerId, entry.workTypeId, entry.loom)] = String(value);
-      // A day recorded with three looms must come back with three boxes.
-      const group = `${entry.workerId}:${entry.workTypeId}`;
-      looms[group] = Math.max(looms[group] ?? 0, entry.loom);
-    }
-    setValues(next);
-    setLoomOverrides(looms);
-    savedRef.current = next;
-  }, [entries.data, date]);
-
   const isFinalized = week.data?.status === "finalized";
 
-  const rows = useMemo(() => {
+  const roster = useMemo(() => {
     if (!bootstrap.data) return [];
     const typeById = new Map(bootstrap.data.workTypes.map((t) => [t.id, t]));
     return bootstrap.data.workers
       .filter((w) => w.isActive)
       .map((worker) => ({
         worker,
-        items: bootstrap.data.rates
+        lines: bootstrap.data.rates
           .filter((r) => r.workerId === worker.id && r.isActive)
           .map((rate) => ({ rate, workType: typeById.get(rate.workTypeId)! }))
-          .filter((row) => row.workType?.isActive),
+          .filter((l): l is Line => Boolean(l.workType?.isActive)),
       }))
-      .filter((group) => group.items.length > 0);
+      .filter((g) => g.lines.length > 0);
   }, [bootstrap.data]);
 
-  const loomsFor = (workerId: number, typeId: number, configured: number) =>
-    Math.max(1, loomOverrides[`${workerId}:${typeId}`] ?? configured);
+  /** Today's saved figures, grouped by worker. */
+  const savedByWorker = useMemo(() => {
+    const map = new Map<number, Map<string, number>>();
+    for (const entry of entries.data ?? []) {
+      if (!map.has(entry.workerId)) map.set(entry.workerId, new Map());
+      map
+        .get(entry.workerId)!
+        .set(
+          cellKey(entry.workTypeId, entry.loom),
+          entry.kind === "direct_sum" ? entry.amount / 100 : entry.quantity,
+        );
+    }
+    return map;
+  }, [entries.data]);
 
-  /** Rupee value of one line today. Weekly-formula types have no daily wage. */
-  const lineWage = (kind: WorkKind, workerId: number, typeId: number, looms: number, unitPrice: number) => {
-    if (kind === "formula_sum_ratio") return null;
+  const workerTotal = (workerId: number, lines: Line[]) => {
+    const saved = savedByWorker.get(workerId);
+    if (!saved) return 0;
     let total = 0;
-    for (let i = 1; i <= looms; i++) {
-      const raw = values[key(workerId, typeId, i)] ?? "";
-      total += kind === "direct_sum" ? parseRupeeInput(raw) : parseCountInput(raw) * unitPrice;
+    for (const { rate, workType } of lines) {
+      if (workType.kind === "formula_sum_ratio") continue;
+      for (const [k, v] of saved) {
+        if (!k.startsWith(`${workType.id}:`)) continue;
+        total += workType.kind === "direct_sum" ? v * 100 : v * rate.unitPrice;
+      }
     }
     return Math.round(total);
   };
 
-  const lineCount = (workerId: number, typeId: number, looms: number) => {
-    let total = 0;
-    for (let i = 1; i <= looms; i++) {
-      total += parseCountInput(values[key(workerId, typeId, i)] ?? "");
-    }
-    return total;
-  };
+  const hasEntered = (workerId: number) => (savedByWorker.get(workerId)?.size ?? 0) > 0;
 
-  const workerTotal = (workerId: number) => {
-    const group = rows.find((g) => g.worker.id === workerId);
-    if (!group) return 0;
-    return group.items.reduce((sum, { rate, workType }) => {
-      const looms = loomsFor(workerId, workType.id, rate.looms);
-      return sum + (lineWage(workType.kind, workerId, workType.id, looms, rate.unitPrice) ?? 0);
-    }, 0);
-  };
-
-  const dayTotal = rows.reduce((sum, g) => sum + workerTotal(g.worker.id), 0);
-  const workersEntered = rows.filter((g) =>
-    g.items.some(({ rate, workType }) => {
-      const looms = loomsFor(g.worker.id, workType.id, rate.looms);
-      for (let i = 1; i <= looms; i++) {
-        if (parseCountInput(values[key(g.worker.id, workType.id, i)] ?? "") !== 0) return true;
-      }
-      return false;
-    }),
-  ).length;
-
-  /** Persist the whole day. Called on blur, only when something changed. */
-  const commit = () => {
-    if (isFinalized) return;
-    const changed = Object.keys({ ...values, ...savedRef.current }).some(
-      (k) => (values[k] ?? "") !== (savedRef.current[k] ?? ""),
-    );
-    if (!changed) return;
-
-    const payload: DayEntryInput[] = [];
-    for (const { worker, items } of rows) {
-      for (const { rate, workType } of items) {
-        const looms = loomsFor(worker.id, workType.id, rate.looms);
-        for (let loom = 1; loom <= looms; loom++) {
-          const raw = values[key(worker.id, workType.id, loom)] ?? "";
-          payload.push({
-            workerId: worker.id,
-            workTypeId: workType.id,
-            loom,
-            quantity: workType.kind === "direct_sum" ? 0 : parseCountInput(raw),
-            amount: workType.kind === "direct_sum" ? parseRupeeInput(raw) : 0,
-          });
-        }
-      }
-    }
-
-    savedRef.current = { ...values };
-    saveDay.mutate(payload, {
-      onError: (error) => {
-        toast(error instanceof Error ? error.message : "Could not save", { tone: "error" });
-        savedRef.current = {}; // let the next blur retry
-      },
-    });
-  };
+  const dayTotal = roster.reduce((s, g) => s + workerTotal(g.worker.id, g.lines), 0);
+  const enteredCount = roster.filter((g) => hasEntered(g.worker.id)).length;
 
   const goto = (next: string) => {
-    commit();
+    setEditing(null);
     navigate(`/entry/${next}`);
   };
 
@@ -212,6 +153,25 @@ export default function DailyEntry() {
   if (bootstrap.isLoading || entries.isLoading) return <Spinner label="Loading the day" />;
   if (bootstrap.error) return <ErrorState error={bootstrap.error} onRetry={bootstrap.refetch} />;
 
+  const current = roster.find((g) => g.worker.id === editing);
+
+  // --- one worker at a time -------------------------------------------------
+  if (current) {
+    return (
+      <WorkerEntry
+        key={`${current.worker.id}:${date}`}
+        date={date}
+        today={today}
+        worker={current.worker}
+        lines={current.lines}
+        saved={savedByWorker.get(current.worker.id) ?? new Map()}
+        readOnly={isFinalized}
+        onClose={() => setEditing(null)}
+      />
+    );
+  }
+
+  // --- who to enter ---------------------------------------------------------
   return (
     <>
       <PageHeader
@@ -220,48 +180,33 @@ export default function DailyEntry() {
           <span className="flex items-center gap-2">
             {longDayName(date)}, {formatFullDate(date)}
             <span className="ink-4">·</span>
-            <span className={workersEntered === rows.length ? "" : "ink-3"}>
-              {workersEntered}/{rows.length} entered
+            <span className={enteredCount === roster.length ? "" : "ink-3"}>
+              {enteredCount}/{roster.length} done
             </span>
-            {saveDay.isPending && <span className="ink-4">saving…</span>}
-            {!saveDay.isPending && saveDay.isSuccess && (
-              <span className="flex items-center gap-0.5" style={{ color: "var(--pos)" }}>
-                <Check size={11} /> saved
-              </span>
-            )}
           </span>
         }
         action={
-          <>
-            <Button
-              icon={<Copy size={13} />}
-              onClick={copyYesterday}
-              loading={copyDay.isPending}
-              disabled={isFinalized}
-              title="Copy yesterday's figures onto this day"
-            >
-              Copy yesterday
-            </Button>
-          </>
+          <Button
+            icon={<Copy size={13} />}
+            onClick={copyYesterday}
+            loading={copyDay.isPending}
+            disabled={isFinalized}
+            title="Copy yesterday's figures onto this day"
+          >
+            Copy yesterday
+          </Button>
         }
       >
         <div className="flex items-center gap-2">
           <Button
-            size="sm"
             icon={<ChevronLeft size={13} />}
             onClick={() => goto(addDays(date, -1))}
             aria-label="Previous day"
           />
           <div className="min-w-0 flex-1">
-            <WeekStrip
-              value={date}
-              today={today}
-              markedDays={markedDays}
-              onSelect={goto}
-            />
+            <WeekStrip value={date} today={today} markedDays={markedDays} onSelect={goto} />
           </div>
           <Button
-            size="sm"
             icon={<ChevronRight size={13} />}
             onClick={() => goto(addDays(date, 1))}
             aria-label="Next day"
@@ -269,35 +214,33 @@ export default function DailyEntry() {
           <CalendarPopover value={date} today={today} markedDays={markedDays} onSelect={goto}>
             {({ open, isOpen }) => (
               <Button
-                size="sm"
                 icon={<CalendarDays size={13} />}
                 onClick={open}
                 aria-expanded={isOpen}
                 aria-label="Open calendar"
-                title="Pick any date"
               />
             )}
           </CalendarPopover>
         </div>
       </PageHeader>
 
-      <PageBody className="space-y-2 pb-20">
-        {isFinalized && (
-          <div
-            className="flex items-center gap-2 rounded border px-2.5 py-1.5 text-xs"
-            style={{
-              background: "var(--warn-soft)",
-              color: "var(--warn)",
-              borderColor: "var(--line)",
-            }}
-          >
-            <Lock size={12} className="shrink-0" />
-            This week is finalized. Reopen it from Wages to make corrections.
-          </div>
-        )}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-2xl px-3 py-3 lg:px-5">
+          {isFinalized && (
+            <div
+              className="mb-2 flex items-center gap-2 rounded border px-2.5 py-1.5 text-xs"
+              style={{
+                background: "var(--warn-soft)",
+                color: "var(--warn)",
+                borderColor: "var(--line)",
+              }}
+            >
+              <Lock size={12} className="shrink-0" />
+              This week is finalized. Reopen it from Wages to make corrections.
+            </div>
+          )}
 
-        {rows.length === 0 ? (
-          <Panel>
+          {roster.length === 0 ? (
             <EmptyState
               title="No workers set up"
               description="Add a worker and assign the towel types they handle, then record the day here."
@@ -307,114 +250,67 @@ export default function DailyEntry() {
                 </Button>
               }
             />
-          </Panel>
-        ) : (
-          rows.map(({ worker, items }) => (
-            <Panel key={worker.id} className="overflow-hidden">
-              <div
-                className="flex h-8 items-center justify-between gap-3 border-b px-3"
-                style={{ background: "var(--panel-2)", borderColor: "var(--line)" }}
-              >
-                <span className="truncate text-xs font-semibold">{worker.name}</span>
-                <span className="tnum text-xs font-medium" style={{ color: "var(--pos)" }}>
-                  {formatINR(workerTotal(worker.id))}
-                </span>
-              </div>
-
-              <div className="hairline-y">
-                {items.map(({ rate, workType }) => {
-                  const looms = loomsFor(worker.id, workType.id, rate.looms);
-                  const wage = lineWage(workType.kind, worker.id, workType.id, looms, rate.unitPrice);
-                  const count = lineCount(worker.id, workType.id, looms);
-
-                  return (
-                    <div
-                      key={workType.id}
-                      className="flex items-center gap-3 px-3 py-1.5"
-                      style={{ borderColor: "var(--line)" }}
+          ) : (
+            <div
+              className="overflow-hidden rounded-md border"
+              style={{ background: "var(--panel)", borderColor: "var(--line)" }}
+            >
+              {roster.map(({ worker, lines }) => {
+                const done = hasEntered(worker.id);
+                return (
+                  <button
+                    key={worker.id}
+                    onClick={() => setEditing(worker.id)}
+                    className="flex w-full items-center gap-3 border-b px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-[color:var(--panel-2)]"
+                    style={{ borderColor: "var(--line)" }}
+                  >
+                    <span
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold"
+                      style={
+                        done
+                          ? { background: "var(--pos-soft)", color: "var(--pos)" }
+                          : { background: "var(--panel-3)", color: "var(--ink-4)" }
+                      }
                     >
-                      <div className="flex min-w-0 flex-1 items-center gap-2">
-                        <span
-                          className="h-2 w-2 shrink-0 rounded-full"
-                          style={{ background: workType.color }}
-                        />
-                        <span className="truncate text-xs font-medium">{workType.name}</span>
-                        <span className="shrink-0 text-[11px] ink-4 tnum">
-                          {workType.kind === "count_x_price" && formatINR(rate.unitPrice)}
-                          {workType.kind === "direct_sum" && "₹ / day"}
-                          {workType.kind === "formula_sum_ratio" &&
-                            `${formatCount(rate.divisor)} = ${formatINR(rate.multiplier)}`}
-                        </span>
-                        {looms > 1 && (
-                          <Badge className="shrink-0">
-                            {looms} looms · {formatCount(count)}
-                          </Badge>
-                        )}
-                      </div>
+                      {done ? <Check size={14} /> : worker.name.charAt(0)}
+                    </span>
 
-                      <LoomInputs
-                        ariaLabel={`${worker.name}, ${workType.name}`}
-                        disabled={isFinalized}
-                        values={Array.from(
-                          { length: looms },
-                          (_, i) => values[key(worker.id, workType.id, i + 1)] ?? "",
-                        )}
-                        onChange={(index, value) =>
-                          setValues((c) => ({
-                            ...c,
-                            [key(worker.id, workType.id, index + 1)]: value,
-                          }))
-                        }
-                        onLoomCountChange={(count) => {
-                          setLoomOverrides((c) => ({
-                            ...c,
-                            [`${worker.id}:${workType.id}`]: count,
-                          }));
-                          // Dropping a loom must also clear its stored figure.
-                          if (count < looms) {
-                            setValues((c) => {
-                              const next = { ...c };
-                              for (let i = count + 1; i <= looms; i++) {
-                                delete next[key(worker.id, workType.id, i)];
-                              }
-                              return next;
-                            });
-                          }
-                        }}
-                        cellProps={{ ...entryCellProps, onBlur: commit }}
-                      />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">{worker.name}</span>
+                      <span className="block truncate text-[11px] ink-3">
+                        {lines.map((l) => l.workType.name).join(" · ")}
+                      </span>
+                    </span>
 
-                      <div className="w-16 shrink-0 text-right text-xs tnum ink-3">
-                        {wage !== null && wage > 0 && formatINR(wage)}
-                        {wage === null && count > 0 && "weekly"}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </Panel>
-          ))
-        )}
+                    {done ? (
+                      <span
+                        className="tnum shrink-0 text-sm font-semibold"
+                        style={{ color: "var(--pos)" }}
+                      >
+                        {formatINR(workerTotal(worker.id, lines))}
+                      </span>
+                    ) : (
+                      <Badge>Not entered</Badge>
+                    )}
+                    <ChevronRight size={15} style={{ color: "var(--ink-4)" }} />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
 
-        <p className="px-1 text-[11px] ink-4">
-          Press <kbd className="font-mono">Enter</kbd> to jump to the next box,{" "}
-          <kbd className="font-mono">Shift+Enter</kbd> to go back. Swipe a row left, or press{" "}
-          <kbd className="font-mono">+</kbd>, to add a second loom.
-        </p>
-      </PageBody>
-
-      {/* Day total, pinned above the tab bar */}
+      {/* Day total — always in view, above the tab bar */}
       <div
-        className="no-print safe-bottom fixed inset-x-0 bottom-14 z-30 border-t lg:bottom-0 lg:ml-52"
+        className="shrink-0 border-t"
         style={{ background: "var(--panel)", borderColor: "var(--line)" }}
       >
-        <div className="mx-auto flex h-10 max-w-[1400px] items-center justify-between px-3 lg:px-5">
+        <div className="mx-auto flex h-11 max-w-2xl items-center justify-between px-3 lg:px-5">
           <span className="text-xs ink-3">
             Day total
             {week.data && (
-              <span className="ml-2 ink-4">
-                week so far {formatINR(week.data.totals.wage)}
-              </span>
+              <span className="ml-2 ink-4">week {formatINR(week.data.totals.wage)}</span>
             )}
           </span>
           <span className="tnum text-base font-semibold" style={{ color: "var(--pos)" }}>
@@ -422,6 +318,249 @@ export default function DailyEntry() {
           </span>
         </div>
       </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// One worker's figures for one day
+// ---------------------------------------------------------------------------
+
+function WorkerEntry({
+  date,
+  today,
+  worker,
+  lines,
+  saved,
+  readOnly,
+  onClose,
+}: {
+  date: string;
+  today: string;
+  worker: Worker;
+  lines: Line[];
+  saved: Map<string, number>;
+  readOnly: boolean;
+  onClose: () => void;
+}) {
+  const saveDay = useSaveDay(date);
+  const { toast } = useToast();
+
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries([...saved].map(([k, v]) => [k, v === 0 ? "" : String(v)])),
+  );
+  const [looms, setLooms] = useState<Record<number, number>>(() => {
+    const map: Record<number, number> = {};
+    for (const { rate, workType } of lines) map[workType.id] = Math.max(1, rate.looms);
+    for (const k of saved.keys()) {
+      const [typeId, loom] = k.split(":").map(Number);
+      map[typeId] = Math.max(map[typeId] ?? 1, loom);
+    }
+    return map;
+  });
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  const initial = useRef(values);
+  const dirty = useMemo(
+    () =>
+      Object.keys({ ...values, ...initial.current }).some(
+        (k) => (values[k] ?? "") !== (initial.current[k] ?? ""),
+      ),
+    [values],
+  );
+
+  // Put the cursor in the first box so entry can start straight away.
+  const firstCell = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (readOnly) return;
+    firstCell.current?.querySelector("input")?.focus();
+  }, [readOnly]);
+
+  const lineValue = (kind: WorkKind, typeId: number, unitPrice: number) => {
+    if (kind === "formula_sum_ratio") return null;
+    let total = 0;
+    for (let i = 1; i <= (looms[typeId] ?? 1); i++) {
+      const raw = values[cellKey(typeId, i)] ?? "";
+      total += kind === "direct_sum" ? parseRupeeInput(raw) : parseCountInput(raw) * unitPrice;
+    }
+    return Math.round(total);
+  };
+
+  const lineCount = (typeId: number) => {
+    let total = 0;
+    for (let i = 1; i <= (looms[typeId] ?? 1); i++) {
+      total += parseCountInput(values[cellKey(typeId, i)] ?? "");
+    }
+    return total;
+  };
+
+  const total = lines.reduce(
+    (s, { rate, workType }) =>
+      s + (lineValue(workType.kind, workType.id, rate.unitPrice) ?? 0),
+    0,
+  );
+
+  const save = () => {
+    const payload: DayEntryInput[] = [];
+    for (const { workType } of lines) {
+      for (let loom = 1; loom <= (looms[workType.id] ?? 1); loom++) {
+        const raw = values[cellKey(workType.id, loom)] ?? "";
+        payload.push({
+          workerId: worker.id,
+          workTypeId: workType.id,
+          loom,
+          quantity: workType.kind === "direct_sum" ? 0 : parseCountInput(raw),
+          amount: workType.kind === "direct_sum" ? parseRupeeInput(raw) : 0,
+        });
+      }
+    }
+
+    saveDay.mutate(payload, {
+      onSuccess: () => {
+        toast(`${worker.name} — ${formatINR(total)} saved.`, { tone: "success" });
+        onClose();
+      },
+      onError: (error) =>
+        toast(error instanceof Error ? error.message : "Could not save", { tone: "error" }),
+    });
+  };
+
+  const cancel = () => {
+    if (dirty && !readOnly) setConfirmDiscard(true);
+    else onClose();
+  };
+
+  return (
+    <>
+      <PageHeader
+        title={worker.name}
+        meta={`${relativeDayLabel(date, today)} · ${formatFullDate(date)}`}
+        action={
+          <>
+            <Button icon={<X size={13} />} onClick={cancel}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              icon={<Check size={13} />}
+              onClick={save}
+              loading={saveDay.isPending}
+              disabled={readOnly}
+            >
+              Save
+            </Button>
+          </>
+        }
+      />
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-2xl px-3 py-3 lg:px-5" ref={firstCell}>
+          <div
+            className="overflow-hidden rounded-md border"
+            style={{ background: "var(--panel)", borderColor: "var(--line)" }}
+          >
+            {lines.map(({ rate, workType }) => {
+              const count = looms[workType.id] ?? 1;
+              const value = lineValue(workType.kind, workType.id, rate.unitPrice);
+              const pieces = lineCount(workType.id);
+
+              return (
+                <EntryRow
+                  key={workType.id}
+                  name={workType.name}
+                  color={workType.color}
+                  disabled={readOnly}
+                  hint={
+                    workType.kind === "count_x_price"
+                      ? `${formatINR(rate.unitPrice)} each`
+                      : workType.kind === "direct_sum"
+                        ? "amount in ₹"
+                        : `${formatCount(rate.divisor)} = ${formatINR(rate.multiplier)}`
+                  }
+                  total={
+                    workType.kind === "formula_sum_ratio"
+                      ? pieces > 0
+                        ? `${formatCount(pieces)} ${workType.unitLabel}`
+                        : undefined
+                      : value
+                        ? formatINR(value)
+                        : undefined
+                  }
+                  totalLabel={
+                    workType.kind === "formula_sum_ratio"
+                      ? "paid weekly"
+                      : count > 1
+                        ? `${formatCount(pieces)} across ${count} looms`
+                        : undefined
+                  }
+                  values={Array.from(
+                    { length: count },
+                    (_, i) => values[cellKey(workType.id, i + 1)] ?? "",
+                  )}
+                  onChange={(index, next) =>
+                    setValues((c) => ({ ...c, [cellKey(workType.id, index + 1)]: next }))
+                  }
+                  onLoomCountChange={(next) => {
+                    setLooms((c) => ({ ...c, [workType.id]: next }));
+                    if (next < count) {
+                      setValues((c) => {
+                        const copy = { ...c };
+                        for (let i = next + 1; i <= count; i++) {
+                          delete copy[cellKey(workType.id, i)];
+                        }
+                        return copy;
+                      });
+                    }
+                  }}
+                />
+              );
+            })}
+          </div>
+
+          <p className="mt-2 px-1 text-[11px] ink-4">
+            <kbd className="font-mono">Enter</kbd> moves to the next box.
+            Swipe a row left, or press <kbd className="font-mono">+</kbd>, for a second loom.
+          </p>
+        </div>
+      </div>
+
+      {/* Worker total + the two actions, always in view */}
+      <div
+        className="shrink-0 border-t"
+        style={{ background: "var(--panel)", borderColor: "var(--line)" }}
+      >
+        <div className="mx-auto flex h-14 max-w-2xl items-center gap-3 px-3 lg:px-5">
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] ink-3">{worker.name}'s day</div>
+            <div className="tnum text-lg font-semibold" style={{ color: "var(--pos)" }}>
+              {formatINR(total)}
+            </div>
+          </div>
+          <Button size="md" onClick={cancel}>
+            Cancel
+          </Button>
+          <Button
+            size="md"
+            variant="primary"
+            className={cx("min-w-24", dirty && "font-semibold")}
+            onClick={save}
+            loading={saveDay.isPending}
+            disabled={readOnly}
+          >
+            Save
+          </Button>
+        </div>
+      </div>
+
+      <ConfirmSheet
+        open={confirmDiscard}
+        onClose={() => setConfirmDiscard(false)}
+        onConfirm={onClose}
+        title="Discard these changes?"
+        confirmLabel="Discard"
+        destructive
+        description={`${worker.name}'s figures have been changed but not saved. Going back now will lose them.`}
+      />
     </>
   );
 }
