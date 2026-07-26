@@ -11,6 +11,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useBootstrap, useToday } from "@/lib/queries";
+import { useRole } from "@/lib/role";
 import { weekStartOf } from "@shared/dates";
 import { cx } from "@/components/ui";
 
@@ -21,11 +22,14 @@ interface NavItem {
   icon: ReactNode;
   /** shown in the phone tab bar */
   primary?: boolean;
+  /** hidden from managers — these decide what people are paid */
+  adminOnly?: boolean;
 }
 
 function useNavItems(): NavItem[] {
   const today = useToday();
-  return [
+  const { isAdmin } = useRole();
+  const items: NavItem[] = [
     { to: "/", label: "Dashboard", short: "Stats", icon: <BarChart3 size={19} />, primary: true },
     { to: "/entry", label: "Daily entry", short: "Entry", icon: <PencilLine size={19} />, primary: true },
     {
@@ -37,15 +41,36 @@ function useNavItems(): NavItem[] {
     },
     { to: "/advances", label: "Advances", short: "Loans", icon: <HandCoins size={19} />, primary: true },
     { to: "/history", label: "History", short: "History", icon: <History size={15} /> },
-    { to: "/workers", label: "Workers", short: "Workers", icon: <Users size={15} /> },
-    { to: "/types", label: "Towel types", short: "Types", icon: <Layers size={15} /> },
-    { to: "/settings", label: "Settings", short: "More", icon: <SettingsIcon size={15} /> },
+    {
+      to: "/workers",
+      label: "Workers",
+      short: "Workers",
+      icon: <Users size={15} />,
+      adminOnly: true,
+    },
+    {
+      to: "/types",
+      label: "Towel types",
+      short: "Types",
+      icon: <Layers size={15} />,
+      adminOnly: true,
+    },
+    {
+      to: "/settings",
+      label: "Settings",
+      short: "More",
+      icon: <SettingsIcon size={15} />,
+      adminOnly: true,
+    },
   ];
+
+  return isAdmin ? items : items.filter((item) => !item.adminOnly);
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
   const items = useNavItems();
   const { data } = useBootstrap();
+  const { isAdmin } = useRole();
   const location = useLocation();
 
   // The week route carries a date, so exact matching would never highlight it.
@@ -61,7 +86,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       long the content is — on a phone that matters, because the tab bar is the
       only way back out of a screen.
     */
-    <div className="flex h-dvh flex-col overflow-hidden">
+    <div className="app-viewport flex flex-col overflow-hidden">
       {/* Desktop rail */}
       <aside
         className="no-print fixed inset-y-0 left-0 z-20 hidden w-52 flex-col border-r lg:flex"
@@ -100,7 +125,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        <div className="mt-auto px-3 py-2 text-[10px] ink-4">Sun–Sat pay weeks</div>
+        <div className="mt-auto px-3 py-2 text-[10px] ink-4">
+          Sun–Sat pay weeks
+          {!isAdmin && <span className="mt-0.5 block">Signed in as manager</span>}
+        </div>
       </aside>
 
       <main className="flex min-h-0 flex-1 flex-col lg:ml-52">{children}</main>
@@ -123,8 +151,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               {item.short}
             </NavLink>
           ))}
+        {/* Managers get History here; everything else behind More is admin-only. */}
         <NavLink
-          to="/settings"
+          to={isAdmin ? "/settings" : "/history"}
           className="flex flex-1 flex-col items-center justify-center gap-1 py-2.5 text-[11px] font-medium"
           style={
             ["/settings", "/workers", "/types", "/history"].some((p) =>
@@ -134,8 +163,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               : { color: "var(--ink-3)" }
           }
         >
-          <SettingsIcon size={19} />
-          More
+          {isAdmin ? <SettingsIcon size={19} /> : <History size={19} />}
+          {isAdmin ? "More" : "History"}
         </NavLink>
       </nav>
     </div>

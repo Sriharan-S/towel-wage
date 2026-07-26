@@ -25,6 +25,7 @@ export function EntryRow({
   color,
   hint,
   value,
+  subValue,
   values,
   onChange,
   onLoomCountChange,
@@ -35,8 +36,10 @@ export function EntryRow({
   color: string;
   /** the rate, shown under the name */
   hint?: string;
-  /** what this line is worth so far, shown under the rate */
+  /** the running towel count, shown under the rate */
   value?: string;
+  /** what those towels come to, shown under the count */
+  subValue?: string;
   /** one string per loom, index 0 = loom 1 */
   values: string[];
   onChange: (loomIndex: number, next: string) => void;
@@ -112,6 +115,9 @@ export function EntryRow({
         )}
         {value && (
           <span className="tnum truncate text-xs font-semibold leading-tight">{value}</span>
+        )}
+        {subValue && (
+          <span className="tnum truncate text-xs font-bold leading-tight">{subValue}</span>
         )}
       </div>
 

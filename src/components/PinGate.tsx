@@ -51,9 +51,20 @@ export function PinGate({ children }: { children: ReactNode }) {
         configured={session.data?.configured ?? true}
         businessName={session.data?.businessName ?? "Towel Wage"}
         onSignedIn={() => {
-          // A fresh sign-in means every cached 401 is now wrong.
-          client.clear();
-          client.invalidateQueries();
+          /*
+            Drop everything fetched while signed out — all of it 401'd — but
+            leave the auth queries alone and refetch the session explicitly.
+
+            client.clear() used to do this, and it is why sign-in appeared to
+            hang: clearing removes the gate's own session query, so the
+            invalidate that followed matched nothing, no refetch was scheduled,
+            and the gate sat on stale `authenticated: false` until the page was
+            reloaded by hand.
+          */
+          client.removeQueries({
+            predicate: (query) => query.queryKey[0] !== "auth",
+          });
+          client.refetchQueries({ queryKey: ["auth", "session"] });
         }}
       />
     );

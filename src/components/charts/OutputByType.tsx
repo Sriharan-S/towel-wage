@@ -14,7 +14,7 @@ import { formatDayMonth, formatWeekRange } from "@shared/dates";
 import type { DashboardStats } from "@/lib/api";
 
 /**
- * Pieces handled per towel type per week.
+ * Towels handled per towel type per week.
  *
  * Counts, not rupees — this answers "what are we actually processing", which
  * the wage charts can't, since a cheap type can dominate volume without
@@ -53,7 +53,7 @@ export function OutputByType({ stats }: { stats: DashboardStats }) {
   return (
     <ChartCard
       title="Output by towel type"
-      subtitle={`${formatCount(grandTotal)} pieces over ${data.length} weeks`}
+      subtitle={`${formatCount(grandTotal)} towels over ${data.length} weeks`}
       legend={
         <Legend
           items={totals.map((t) => ({

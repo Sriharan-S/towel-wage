@@ -224,6 +224,25 @@
     padding-top: env(safe-area-inset-top);
   }
 
+  /*
+    Keep the shell inside the *visible* viewport.
+
+    On Android the soft keyboard does not shrink `dvh`, so a bottom action bar
+    ends up underneath it — you had to dismiss the keyboard just to reach Save.
+    `interactive-widget=resizes-content` in the viewport meta makes the browser
+    resize the layout viewport instead, and this height follows it. The dvh
+    value is the fallback for anything that does not honour it.
+  */
+  .app-viewport {
+    height: 100dvh;
+  }
+
+  @supports (height: 100svh) {
+    .app-viewport {
+      height: 100svh;
+    }
+  }
+
   /* Rules that read as structure, not decoration. */
   .hairline-y > * + * {
     border-top: 1px solid var(--line);

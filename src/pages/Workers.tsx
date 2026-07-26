@@ -392,7 +392,7 @@ function AssignRatesSheet({ worker, onClose }: { worker: Worker; onClose: () => 
 
               {assigned && type.kind === "count_x_price" && (
                 <div className="mt-3 grid grid-cols-2 gap-3 pl-8">
-                  <Field label="Price per piece">
+                  <Field label="Price per towel">
                     <NumberInput
                       value={assigned.unitPrice === 0 ? "" : String(toRupees(assigned.unitPrice))}
                       placeholder="0.00"

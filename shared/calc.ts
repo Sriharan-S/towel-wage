@@ -118,6 +118,7 @@ export function buildLineItems(params: {
       wage: 0,
       daily: Object.fromEntries(days.map((d) => [d, 0])),
       dailyWage: Object.fromEntries(days.map((d) => [d, 0])),
+      dailyByLoom: Object.fromEntries(days.map((d) => [d, [] as number[]])),
       daysWorked: 0,
       looms: 1,
       loomTotals: [],
@@ -190,6 +191,10 @@ export function buildLineItems(params: {
 
     item.loomTotals[loom - 1] += value;
     item.daily[entry.entryDate] = (item.daily[entry.entryDate] ?? 0) + value;
+
+    const perLoom = (item.dailyByLoom[entry.entryDate] ??= []);
+    while (perLoom.length < loom) perLoom.push(0);
+    perLoom[loom - 1] += value;
 
     if (value !== 0) {
       if (!daysWithWork.has(entry.workTypeId)) daysWithWork.set(entry.workTypeId, new Set());

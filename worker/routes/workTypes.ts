@@ -11,6 +11,7 @@ import {
   type AppEnv,
 } from "../lib/http";
 import { nextSortOrder, toWorkType, type WorkTypeRow } from "../lib/db";
+import { applyRateChange } from "../lib/rates";
 
 const app = new Hono<AppEnv>();
 
@@ -69,7 +70,20 @@ app.post("/", async (c) => {
 
 app.patch("/:id", async (c) => {
   const id = readId(c);
-  const body = await readJson(c, baseSchema.partial().extend({ sortOrder: z.number().int().optional() }));
+  const body = await readJson(
+    c,
+    baseSchema.partial().extend({
+      sortOrder: z.number().int().optional(),
+      /**
+       * Push the new price out to everyone doing this towel type.
+       *
+       * Without this, editing the price here changed only the default used for
+       * *new* assignments, and every existing worker carried on at their own
+       * stored rate — which looked exactly like the edit being ignored.
+       */
+      applyToWorkers: z.boolean().optional(),
+    }),
+  );
 
   const columns: Record<string, unknown> = {
     name: body.name,
@@ -93,7 +107,58 @@ app.patch("/:id", async (c) => {
     .first<WorkTypeRow>();
 
   if (!row) throw new HTTPException(404, { message: "Towel type not found." });
-  return c.json(toWorkType(row));
+
+  // Roll the new rate out to every worker doing this type, repricing the weeks
+  // that have not been paid yet.
+  let workersUpdated = 0;
+  let entriesRepriced = 0;
+
+  if (body.applyToWorkers) {
+    const { results: assigned } = await c.env.DB.prepare(
+      "SELECT * FROM worker_rates WHERE work_type_id = ?",
+    )
+      .bind(id)
+      .all<{
+        worker_id: number;
+        work_type_id: number;
+        unit_price: number;
+        divisor: number;
+        multiplier: number;
+      }>();
+
+    const after = {
+      unitPrice: row.default_unit_price,
+      divisor: row.default_divisor,
+      multiplier: row.default_multiplier,
+    };
+
+    for (const rate of assigned) {
+      await c.env.DB
+        .prepare(
+          `UPDATE worker_rates SET unit_price = ?, divisor = ?, multiplier = ?
+            WHERE worker_id = ? AND work_type_id = ?`,
+        )
+        .bind(after.unitPrice, after.divisor, after.multiplier, rate.worker_id, id)
+        .run();
+
+      const change = await applyRateChange(c.env.DB, {
+        workerId: rate.worker_id,
+        workTypeId: id,
+        before: {
+          unitPrice: rate.unit_price,
+          divisor: rate.divisor,
+          multiplier: rate.multiplier,
+        },
+        after,
+      });
+      if (change) {
+        workersUpdated += 1;
+        entriesRepriced += change.entriesRepriced;
+      }
+    }
+  }
+
+  return c.json({ ...toWorkType(row), workersUpdated, entriesRepriced });
 });
 
 /**

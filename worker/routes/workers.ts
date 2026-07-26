@@ -8,6 +8,7 @@ import {
   readJson,
   type AppEnv,
 } from "../lib/http";
+import { applyRateChange } from "../lib/rates";
 import {
   nextSortOrder,
   toWorker,
@@ -195,6 +196,14 @@ app.put("/:id/rates", async (c) => {
     .first<{ id: number }>();
   if (!worker) throw new HTTPException(404, { message: "Worker not found." });
 
+  // Captured before the write, so a price change can be detected afterwards.
+  const { results: existing } = await c.env.DB.prepare(
+    "SELECT * FROM worker_rates WHERE worker_id = ?",
+  )
+    .bind(id)
+    .all<WorkerRateRow>();
+  const existingByType = new Map(existing.map((r) => [r.work_type_id, r] as const));
+
   const keepIds = body.rates.map((r) => r.workTypeId);
   const statements = [
     keepIds.length
@@ -230,12 +239,38 @@ app.put("/:id/rates", async (c) => {
 
   await c.env.DB.batch(statements);
 
+  /*
+    A changed price is not just a setting: every week that has not been paid
+    yet should reflect it. Reprice those, leave finalized weeks frozen, and
+    record what moved.
+  */
+  let repriced = 0;
+  for (const rate of body.rates) {
+    const was = existingByType.get(rate.workTypeId);
+    if (!was) continue;
+    const change = await applyRateChange(c.env.DB, {
+      workerId: id,
+      workTypeId: rate.workTypeId,
+      before: {
+        unitPrice: was.unit_price,
+        divisor: was.divisor,
+        multiplier: was.multiplier,
+      },
+      after: {
+        unitPrice: rate.unitPrice,
+        divisor: rate.divisor,
+        multiplier: rate.multiplier,
+      },
+    });
+    if (change) repriced += change.entriesRepriced;
+  }
+
   const { results } = await c.env.DB.prepare(
     "SELECT * FROM worker_rates WHERE worker_id = ? ORDER BY sort_order, id",
   )
     .bind(id)
     .all<WorkerRateRow>();
-  return c.json(results.map(toWorkerRate));
+  return c.json({ rates: results.map(toWorkerRate), entriesRepriced: repriced });
 });
 
 export default app;

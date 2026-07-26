@@ -138,8 +138,19 @@ export default function WorkTypes() {
             await createType.mutateAsync(values);
             toast("Towel type added.", { tone: "success" });
           } else if (editing) {
-            await updateType.mutateAsync({ id: editing.id, ...values });
-            toast("Towel type updated.", { tone: "success" });
+            const result = await updateType.mutateAsync({ id: editing.id, ...values });
+            toast(
+              result.workersUpdated > 0
+                ? `Updated. New rate applied to ${result.workersUpdated} ${
+                    result.workersUpdated === 1 ? "worker" : "workers"
+                  }${
+                    result.entriesRepriced > 0
+                      ? `, repricing ${result.entriesRepriced} open entries`
+                      : ""
+                  }.`
+                : "Towel type updated.",
+              { tone: "success" },
+            );
           }
           setEditing(null);
         }}
@@ -191,6 +202,9 @@ function WorkTypeSheet({
   const [color, setColor] = useState(PALETTE[0]);
   const [isActive, setIsActive] = useState(true);
   const [error, setError] = useState("");
+  // Defaults on, because the usual reason to edit a price is that the price
+  // has actually changed for everyone doing that towel.
+  const [applyToWorkers, setApplyToWorkers] = useState(true);
 
   const formKey = isNew ? "new" : (existing?.id ?? 0);
   const [lastKey, setLastKey] = useState<string | number>("");
@@ -215,6 +229,7 @@ function WorkTypeSheet({
     await onSubmit({
       name: name.trim(),
       kind,
+      applyToWorkers,
       unitLabel: unitLabel.trim() || "towels",
       defaultUnitPrice: parseRupeeInput(price),
       defaultDivisor: Number(divisor) || 75,
@@ -274,7 +289,7 @@ function WorkTypeSheet({
 
         {kind === "count_x_price" && (
           <Field
-            label="Default price per piece"
+            label="Default price per towel"
             hint="Each worker can be given their own price when you assign this type to them."
           >
             <NumberInput
@@ -296,6 +311,32 @@ function WorkTypeSheet({
             <p className="col-span-2 -mt-2 text-xs ink-2">
               A week totalling {divisor || 0} {unitLabel} pays ₹{multiplier || 0}.
             </p>
+          </div>
+        )}
+
+        {existing && kind !== "direct_sum" && (
+          <div
+            className="rounded border p-2.5"
+            style={{ background: "var(--panel-2)", borderColor: "var(--line)" }}
+          >
+            <label className="flex cursor-pointer items-start gap-2.5">
+              <input
+                type="checkbox"
+                checked={applyToWorkers}
+                onChange={(e) => setApplyToWorkers(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0"
+              />
+              <span className="min-w-0">
+                <span className="block text-xs font-medium">
+                  Apply this rate to everyone doing {name || "this type"}
+                </span>
+                <span className="mt-0.5 block text-[11px] ink-3">
+                  Reprices every week that has not been finalized, including earlier ones.
+                  Finalized weeks keep the figures they were paid at. Leave this off and the
+                  price only applies to workers assigned this type from now on.
+                </span>
+              </span>
+            </label>
           </div>
         )}
 

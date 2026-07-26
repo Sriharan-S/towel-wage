@@ -48,12 +48,46 @@ app.use("/api/*", async (c, next) => {
 
   const settings = await loadSettings(c.env.DB);
   const token = getCookie(c, SESSION_COOKIE);
+  const role = await verifySession(c.env.DB, c.env, settings.timezone, token);
 
-  if (!(await verifySession(c.env.DB, c.env, settings.timezone, token))) {
+  if (!role) {
     return c.json({ error: "Not signed in." }, 401);
   }
+
+  /*
+    Managers run the day to day — entry, wages, advances, stats — but not the
+    configuration that decides what anyone is paid, nor the backup that would
+    hand them the whole database.
+
+    Enforced here rather than only in the UI: hiding a tab stops it being
+    found, not being called. The role comes off the session row, never off the
+    request, so it cannot be raised by editing one.
+  */
+  if (role === "manager" && !isManagerAllowed(c.req.method, path)) {
+    return c.json(
+      { error: "Your PIN does not have access to this.", forbidden: true },
+      403,
+    );
+  }
+
   return next();
 });
+
+/** Paths a manager may reach, by method. */
+function isManagerAllowed(method: string, path: string): boolean {
+  // Configuration and backups are admin-only outright.
+  const adminOnly = ["/api/settings", "/api/backup"];
+  if (adminOnly.some((prefix) => path.startsWith(prefix))) return false;
+
+  // Workers and towel types stay readable — the entry and wage screens cannot
+  // render without them — but not editable.
+  const readOnlyForManagers = ["/api/workers", "/api/work-types"];
+  if (readOnlyForManagers.some((prefix) => path.startsWith(prefix))) {
+    return method === "GET" || method === "HEAD";
+  }
+
+  return true;
+}
 
 /**
  * Everything the app needs to render its first screen, in a single round trip.

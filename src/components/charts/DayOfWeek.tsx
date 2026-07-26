@@ -15,7 +15,7 @@ import type { DashboardStats } from "@/lib/api";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /**
- * Average pieces per day of the week.
+ * Average towels per day of the week.
  *
  * One series, so every bar is slot 1 — colouring bars by their own height would
  * double-encode the value and burn the only free channel.
@@ -36,12 +36,12 @@ export function DayOfWeek({ stats }: { stats: DashboardStats }) {
       title="Busiest days"
       subtitle={
         busiest?.avgQuantity
-          ? `${DAYS[busiest.dayOfWeek]} averages ${formatCount(Math.round(busiest.avgQuantity))} pieces`
-          : "Average pieces per weekday"
+          ? `${DAYS[busiest.dayOfWeek]} averages ${formatCount(Math.round(busiest.avgQuantity))} towels`
+          : "Average towels per weekday"
       }
       table={
         <DataTable
-          columns={["Day", "Avg pieces", "Avg wage", "Days"]}
+          columns={["Day", "Avg towels", "Avg wage", "Days"]}
           align={["left", "right", "right", "right"]}
           rows={data.map((d) => [
             DAYS[d.dayOfWeek],
@@ -80,7 +80,7 @@ export function DayOfWeek({ stats }: { stats: DashboardStats }) {
                   title={DAYS[point.dayOfWeek]}
                   rows={[
                     {
-                      label: "Avg pieces",
+                      label: "Avg towels",
                       value: formatCount(Math.round(point.avgQuantity)),
                       color,
                     },

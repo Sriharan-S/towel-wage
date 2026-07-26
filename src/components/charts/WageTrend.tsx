@@ -36,7 +36,7 @@ export function WageTrend({ stats }: { stats: DashboardStats }) {
       subtitle={`Last ${data.length} weeks${last ? ` · latest ${formatINR(last.wage * 100)}` : ""}`}
       table={
         <DataTable
-          columns={["Week", "Wage", "Pieces"]}
+          columns={["Week", "Wage", "Towels"]}
           align={["left", "right", "right"]}
           rows={[...data]
             .reverse()
@@ -86,7 +86,7 @@ export function WageTrend({ stats }: { stats: DashboardStats }) {
                   title={formatWeekRange(point.weekStart)}
                   rows={[
                     { label: "Wages", value: formatINR(point.wage * 100), color },
-                    { label: "Pieces", value: formatCount(point.quantity) },
+                    { label: "Towels", value: formatCount(point.quantity) },
                   ]}
                 />
               );

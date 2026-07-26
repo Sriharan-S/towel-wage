@@ -1,13 +1,19 @@
+import { Fragment } from "react";
 import { formatCount, formatINR } from "@shared/money";
-import { formatFullDate, formatWeekRange } from "@shared/dates";
-import type { WeekResult } from "@shared/types";
+import { formatWeekRange, longDayName, parseISO } from "@shared/dates";
+import type { ISODate } from "@shared/dates";
+import type { WeekResult, WorkerWeekResult } from "@shared/types";
+import { buildWeekGrid, formatCellCount, formatCellWage } from "./WeekGrid";
 
 /**
- * The printed payout sheet.
+ * The printed week sheet.
  *
- * Screen-hidden, print-only. Deliberately plain: a header, one block per
- * worker showing how the wage was made up and every adjustment applied, a
- * grand total, and a signature column — the thing you keep in a file.
+ * A record, not a receipt: one table per worker, days down the side and towel
+ * types across the top, each type showing what was made and what it was worth.
+ * A day run on more than one loom keeps its looms in brackets, so the sheet can
+ * be checked line by line against the loom tallies rather than only in total.
+ *
+ * Screen-hidden, print-only.
  */
 export function PayoutSheet({
   week,
@@ -16,215 +22,301 @@ export function PayoutSheet({
   week: WeekResult;
   businessName: string;
 }) {
-  const printedOn = formatFullDate(new Date().toISOString().slice(0, 10));
-
   return (
     <div className="print-only" aria-hidden>
-      <header
-        style={{
-          borderBottom: "2px solid #000",
-          paddingBottom: "6pt",
-          marginBottom: "10pt",
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <h1 style={{ fontSize: "15pt", fontWeight: 700, margin: 0 }}>{businessName}</h1>
-          <span style={{ fontSize: "9pt" }}>Printed {printedOn}</span>
+      <header style={S.header}>
+        <div style={S.headerRow}>
+          <h1 style={S.title}>{businessName}</h1>
+          <span style={S.small}>
+            {week.status === "finalized" ? "Finalized" : "Draft"}
+          </span>
         </div>
-        <p style={{ margin: "3pt 0 0", fontSize: "11pt" }}>
-          Wage sheet — week of {formatWeekRange(week.weekStart)} (Sunday to Saturday)
-          {week.status === "finalized" && " · FINALIZED"}
+        <p style={S.subtitle}>
+          Wage sheet · {formatWeekRange(week.weekStart)} · Sunday to Saturday
         </p>
       </header>
 
       {week.workers.map((worker) => (
-        <section className="print-block" key={worker.workerId} style={{ marginBottom: "12pt" }}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "baseline",
-              borderBottom: "1px solid #000",
-              paddingBottom: "2pt",
-              marginBottom: "4pt",
-            }}
-          >
-            <h2 style={{ fontSize: "12pt", fontWeight: 700, margin: 0 }}>
-              {worker.workerName}
-            </h2>
-            <span style={{ fontSize: "13pt", fontWeight: 700 }}>
-              {formatINR(worker.netPayable)}
-            </span>
-          </div>
-
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "9.5pt" }}>
-            <thead>
-              <tr style={{ textAlign: "left" }}>
-                <th style={{ padding: "1pt 0", fontWeight: 600, width: "40%" }}>Item</th>
-                <th style={{ padding: "1pt 0", fontWeight: 600, textAlign: "right" }}>
-                  Quantity
-                </th>
-                <th style={{ padding: "1pt 0", fontWeight: 600, textAlign: "right" }}>Rate</th>
-                <th style={{ padding: "1pt 0", fontWeight: 600, textAlign: "right" }}>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {worker.lineItems
-                .filter((item) => item.wage !== 0 || item.totalQuantity !== 0)
-                .map((item) => (
-                  <tr key={item.workTypeId}>
-                    <td style={{ padding: "1pt 0" }}>
-                      {item.name}
-                      {item.looms > 1 && (
-                        <span style={{ fontSize: "8pt", color: "#555" }}>
-                          {" "}
-                          ({item.loomTotals.map((t, i) => `L${i + 1} ${formatCount(t)}`).join(", ")})
-                        </span>
-                      )}
-                      {item.rateVaried && (
-                        <span style={{ fontSize: "8pt", color: "#555" }}> (rate changed)</span>
-                      )}
-                    </td>
-                    <td style={{ padding: "1pt 0", textAlign: "right" }}>
-                      {item.kind === "direct_sum"
-                        ? `${item.daysWorked} days`
-                        : formatCount(item.totalQuantity)}
-                    </td>
-                    <td style={{ padding: "1pt 0", textAlign: "right" }}>
-                      {item.kind === "count_x_price" && !item.rateVaried
-                        ? formatINR(item.unitPrice)
-                        : item.kind === "formula_sum_ratio"
-                          ? `÷${formatCount(item.divisor)} × ${formatINR(item.multiplier)}`
-                          : "—"}
-                    </td>
-                    <td style={{ padding: "1pt 0", textAlign: "right" }}>
-                      {formatINR(item.wage)}
-                    </td>
-                  </tr>
-                ))}
-
-              <tr style={{ borderTop: "1px solid #999" }}>
-                <td colSpan={3} style={{ padding: "2pt 0", fontWeight: 600 }}>
-                  Wage
-                </td>
-                <td style={{ padding: "2pt 0", textAlign: "right", fontWeight: 600 }}>
-                  {formatINR(worker.wage)}
-                </td>
-              </tr>
-
-              {worker.advances.length > 0 &&
-                worker.advances.map((advance) => (
-                  <tr key={advance.id}>
-                    <td colSpan={3} style={{ padding: "1pt 0", color: "#333" }}>
-                      {advance.kind === "advance" ? "Advance given" : "Advance returned"} on{" "}
-                      {formatFullDate(advance.entryDate)}
-                      {advance.note ? ` — ${advance.note}` : ""}
-                    </td>
-                    <td style={{ padding: "1pt 0", textAlign: "right", color: "#333" }}>
-                      {advance.kind === "advance" ? "−" : "+"}
-                      {formatINR(advance.amount)}
-                    </td>
-                  </tr>
-                ))}
-
-              {adjustmentRows(worker).map((row) => (
-                <tr key={row.label}>
-                  <td colSpan={3} style={{ padding: "1pt 0" }}>
-                    {row.label}
-                  </td>
-                  <td style={{ padding: "1pt 0", textAlign: "right" }}>{row.value}</td>
-                </tr>
-              ))}
-
-              <tr style={{ borderTop: "2px solid #000" }}>
-                <td colSpan={3} style={{ padding: "3pt 0", fontWeight: 700 }}>
-                  Net paid
-                </td>
-                <td style={{ padding: "3pt 0", textAlign: "right", fontWeight: 700 }}>
-                  {formatINR(worker.netPayable)}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-
-          {(worker.closingBalance.creditOutstanding > 0 ||
-            worker.closingBalance.debitOutstanding > 0 ||
-            worker.closingBalance.advanceOutstanding > 0) && (
-            <p style={{ margin: "3pt 0 0", fontSize: "8.5pt", color: "#333" }}>
-              Carried forward:
-              {worker.closingBalance.advanceOutstanding > 0 &&
-                ` advance ${formatINR(worker.closingBalance.advanceOutstanding)} owed to you;`}
-              {worker.closingBalance.creditOutstanding > 0 &&
-                ` credit ${formatINR(worker.closingBalance.creditOutstanding)} owed to you;`}
-              {worker.closingBalance.debitOutstanding > 0 &&
-                ` ${formatINR(worker.closingBalance.debitOutstanding)} owed to worker;`}
-            </p>
-          )}
-
-          <div style={{ marginTop: "8pt", fontSize: "9pt" }}>
-            Received by: ______________________________ &nbsp;&nbsp; Date: ______________
-          </div>
-        </section>
+        <WorkerTable key={worker.workerId} worker={worker} weekStart={week.weekStart} />
       ))}
 
-      <footer style={{ borderTop: "2px solid #000", paddingTop: "5pt", marginTop: "6pt" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10pt" }}>
-          <tbody>
+      <section style={S.summary} className="print-block">
+        <h2 style={S.summaryTitle}>Week summary</h2>
+        <table style={S.table}>
+          <thead>
             <tr>
-              <td style={{ padding: "1pt 0" }}>Total wages earned</td>
-              <td style={{ padding: "1pt 0", textAlign: "right" }}>
-                {formatINR(week.totals.wage)}
-              </td>
+              <th style={{ ...S.th, ...S.left }}>Worker</th>
+              <th style={{ ...S.th, ...S.right }}>Towels</th>
+              <th style={{ ...S.th, ...S.right }}>Wage</th>
+              <th style={{ ...S.th, ...S.right }}>Adjustments</th>
+              <th style={{ ...S.th, ...S.right }}>Net paid</th>
+              <th style={{ ...S.th, ...S.left, width: "22%" }}>Signature</th>
             </tr>
-            {week.totals.advanceRecovered > 0 && (
-              <tr>
-                <td style={{ padding: "1pt 0" }}>Advances recovered</td>
-                <td style={{ padding: "1pt 0", textAlign: "right" }}>
-                  −{formatINR(week.totals.advanceRecovered)}
-                </td>
-              </tr>
-            )}
-            <tr style={{ borderTop: "1px solid #000" }}>
-              <td style={{ padding: "3pt 0", fontWeight: 700, fontSize: "12pt" }}>
-                Total paid out ({week.workers.length} workers)
+          </thead>
+          <tbody>
+            {week.workers.map((worker) => {
+              const grid = buildWeekGrid(worker, week.weekStart);
+              const adjustment = worker.netPayable - worker.wage;
+              return (
+                <tr key={worker.workerId}>
+                  <td style={{ ...S.td, ...S.left }}>{worker.workerName}</td>
+                  <td style={{ ...S.td, ...S.right }}>
+                    {formatCount(grid.totals.quantity)}
+                  </td>
+                  <td style={{ ...S.td, ...S.right }}>{formatINR(worker.wage)}</td>
+                  <td style={{ ...S.td, ...S.right }}>
+                    {adjustment === 0
+                      ? "—"
+                      : `${adjustment > 0 ? "+" : "−"}${formatINR(Math.abs(adjustment))}`}
+                  </td>
+                  <td style={{ ...S.td, ...S.right, fontWeight: 700 }}>
+                    {formatINR(worker.netPayable)}
+                  </td>
+                  <td style={{ ...S.td, ...S.left }} />
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td style={{ ...S.tdTotal, ...S.left }}>
+                Total · {week.workers.length} workers
               </td>
-              <td
-                style={{
-                  padding: "3pt 0",
-                  textAlign: "right",
-                  fontWeight: 700,
-                  fontSize: "12pt",
-                }}
-              >
+              <td style={{ ...S.tdTotal, ...S.right }}>
+                {formatCount(week.totals.quantity)}
+              </td>
+              <td style={{ ...S.tdTotal, ...S.right }}>{formatINR(week.totals.wage)}</td>
+              <td style={{ ...S.tdTotal, ...S.right }}>
+                {formatINR(week.totals.netPayable - week.totals.wage)}
+              </td>
+              <td style={{ ...S.tdTotal, ...S.right }}>
                 {formatINR(week.totals.netPayable)}
               </td>
+              <td style={S.tdTotal} />
             </tr>
-          </tbody>
+          </tfoot>
         </table>
-        <p style={{ margin: "4pt 0 0", fontSize: "8pt", color: "#555" }}>
-          {formatCount(week.totals.quantity)} pieces processed. Rates shown are those in force
-          when each day was recorded.
-        </p>
-      </footer>
+      </section>
     </div>
   );
 }
 
-function adjustmentRows(worker: WeekResult["workers"][number]) {
-  const rows: Array<{ label: string; value: string }> = [];
-  const { adjustments: a } = worker;
-  if (a.advanceRecovered > 0)
-    rows.push({
-      label: "Less: advance recovered",
-      value: `−${formatINR(a.advanceRecovered)}`,
-    });
-  if (a.deduct > 0)
-    rows.push({ label: "Less: earlier credit recovered", value: `−${formatINR(a.deduct)}` });
-  if (a.addback > 0)
-    rows.push({ label: "Plus: earlier balance repaid", value: `+${formatINR(a.addback)}` });
-  if (a.credit > 0)
-    rows.push({ label: "Plus: rounded up (credit)", value: `+${formatINR(a.credit)}` });
-  if (a.debit > 0)
-    rows.push({ label: "Less: rounded down (held)", value: `−${formatINR(a.debit)}` });
-  return rows;
+function WorkerTable({
+  worker,
+  weekStart,
+}: {
+  worker: WorkerWeekResult;
+  weekStart: ISODate;
+}) {
+  const grid = buildWeekGrid(worker, weekStart);
+  if (grid.columns.length === 0) return null;
+
+  const adjustments = adjustmentLines(worker);
+
+  return (
+    <section style={S.workerBlock} className="print-block">
+      <div style={S.workerHead}>
+        <h2 style={S.workerName}>{worker.workerName}</h2>
+        <span style={S.workerWage}>{formatINR(worker.netPayable)}</span>
+      </div>
+
+      <table style={S.table}>
+        <thead>
+          <tr>
+            <th rowSpan={2} style={{ ...S.th, ...S.left, width: "22%" }}>
+              Date
+            </th>
+            {grid.columns.map((column) => (
+              <th key={column.workTypeId} colSpan={2} style={{ ...S.th, ...S.group }}>
+                {column.name}
+              </th>
+            ))}
+          </tr>
+          <tr>
+            {grid.columns.map((column) => (
+              <Fragment key={column.workTypeId}>
+                <th key={`${column.workTypeId}-q`} style={{ ...S.thSub, ...S.right }}>
+                  Towels
+                </th>
+                <th key={`${column.workTypeId}-p`} style={{ ...S.thSub, ...S.right }}>
+                  Price
+                </th>
+              </Fragment>
+            ))}
+          </tr>
+        </thead>
+
+        <tbody>
+          {grid.rows.map((row) => (
+            <tr key={row.date}>
+              <td style={{ ...S.td, ...S.left }}>{printDate(row.date)}</td>
+              {grid.columns.map((column) => {
+                const cell = row.cells.get(column.workTypeId);
+                return (
+                  <Fragment key={column.workTypeId}>
+                    <td key={`${column.workTypeId}-q`} style={{ ...S.td, ...S.right }}>
+                      {formatCellCount(cell)}
+                    </td>
+                    <td key={`${column.workTypeId}-p`} style={{ ...S.td, ...S.right }}>
+                      {formatCellWage(cell, column.weeklyOnly)}
+                    </td>
+                  </Fragment>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+
+        <tfoot>
+          <tr>
+            <td style={{ ...S.tdTotal, ...S.left }}>Total</td>
+            {grid.columns.map((column) => (
+              <Fragment key={column.workTypeId}>
+                <td key={`${column.workTypeId}-q`} style={{ ...S.tdTotal, ...S.right }}>
+                  {column.totalQuantity > 0 ? formatCount(column.totalQuantity) : "—"}
+                </td>
+                <td key={`${column.workTypeId}-p`} style={{ ...S.tdTotal, ...S.right }}>
+                  {formatINR(column.totalWage)}
+                </td>
+              </Fragment>
+            ))}
+          </tr>
+        </tfoot>
+      </table>
+
+      <div style={S.tail}>
+        <div style={S.tailNotes}>
+          {grid.columns.some((c) => c.weeklyOnly) && (
+            <p style={S.note}>
+              {grid.columns
+                .filter((c) => c.weeklyOnly)
+                .map((c) => c.name)
+                .join(", ")}{" "}
+              paid on the week's total, so daily prices are blank.
+            </p>
+          )}
+          {worker.lineItems.some((i) => i.rateVaried) && (
+            <p style={S.note}>
+              A rate changed during the week; each day is priced at the rate in force when it
+              was recorded.
+            </p>
+          )}
+          {worker.advances.length > 0 && (
+            <p style={S.note}>
+              {worker.advances
+                .map(
+                  (a) =>
+                    `${a.kind === "advance" ? "Advance" : "Returned"} ${formatINR(a.amount)} on ${printDate(a.entryDate)}`,
+                )
+                .join(" · ")}
+            </p>
+          )}
+        </div>
+
+        <table style={S.settleTable}>
+          <tbody>
+            <tr>
+              <td style={S.settleLabel}>Wage</td>
+              <td style={S.settleValue}>{formatINR(worker.wage)}</td>
+            </tr>
+            {adjustments.map((line) => (
+              <tr key={line.label}>
+                <td style={S.settleLabel}>{line.label}</td>
+                <td style={S.settleValue}>{line.value}</td>
+              </tr>
+            ))}
+            <tr>
+              <td style={{ ...S.settleLabel, ...S.settleTotal }}>Net paid</td>
+              <td style={{ ...S.settleValue, ...S.settleTotal }}>
+                {formatINR(worker.netPayable)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style={S.sign}>Received by ______________________ Date ____________</p>
+    </section>
+  );
 }
+
+/** "26/07/2026 Sunday" — the format asked for, day spelled out. */
+function printDate(date: ISODate): string {
+  const d = parseISO(date);
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${dd}/${mm}/${d.getUTCFullYear()} ${longDayName(date)}`;
+}
+
+function adjustmentLines(worker: WorkerWeekResult) {
+  const lines: Array<{ label: string; value: string }> = [];
+  const a = worker.adjustments;
+  if (a.advanceRecovered > 0)
+    lines.push({ label: "Less advance", value: `−${formatINR(a.advanceRecovered)}` });
+  if (a.deduct > 0)
+    lines.push({ label: "Less earlier credit", value: `−${formatINR(a.deduct)}` });
+  if (a.addback > 0)
+    lines.push({ label: "Plus balance repaid", value: `+${formatINR(a.addback)}` });
+  if (a.credit > 0) lines.push({ label: "Plus rounded up", value: `+${formatINR(a.credit)}` });
+  if (a.debit > 0) lines.push({ label: "Less held back", value: `−${formatINR(a.debit)}` });
+  return lines;
+}
+
+/* Print styles are inline so nothing depends on the app's CSS surviving. */
+const S: Record<string, React.CSSProperties> = {
+  header: { borderBottom: "1.5pt solid #000", paddingBottom: "5pt", marginBottom: "10pt" },
+  headerRow: { display: "flex", justifyContent: "space-between", alignItems: "baseline" },
+  title: { fontSize: "14pt", fontWeight: 700, margin: 0, letterSpacing: "0.01em" },
+  subtitle: { margin: "2pt 0 0", fontSize: "10pt" },
+  small: { fontSize: "8.5pt", textTransform: "uppercase", letterSpacing: "0.06em" },
+
+  workerBlock: { marginBottom: "14pt" },
+  workerHead: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    marginBottom: "3pt",
+  },
+  workerName: { fontSize: "11.5pt", fontWeight: 700, margin: 0 },
+  workerWage: { fontSize: "11.5pt", fontWeight: 700 },
+
+  table: { width: "100%", borderCollapse: "collapse", fontSize: "9pt" },
+  th: {
+    borderTop: "0.75pt solid #000",
+    borderBottom: "0.5pt solid #000",
+    padding: "2.5pt 4pt",
+    fontWeight: 700,
+    fontSize: "8.5pt",
+  },
+  thSub: {
+    borderBottom: "0.75pt solid #000",
+    padding: "1.5pt 4pt",
+    fontWeight: 400,
+    fontSize: "7.5pt",
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+    color: "#444",
+  },
+  group: { textAlign: "center", borderLeft: "0.5pt solid #999" },
+  td: { borderBottom: "0.4pt solid #ccc", padding: "2.5pt 4pt" },
+  tdTotal: {
+    borderTop: "0.75pt solid #000",
+    padding: "3pt 4pt",
+    fontWeight: 700,
+  },
+  left: { textAlign: "left" },
+  right: { textAlign: "right", fontVariantNumeric: "tabular-nums" },
+
+  tail: { display: "flex", gap: "10pt", marginTop: "4pt", alignItems: "flex-start" },
+  tailNotes: { flex: 1, fontSize: "7.5pt", color: "#333" },
+  note: { margin: "0 0 1.5pt" },
+  settleTable: { borderCollapse: "collapse", fontSize: "9pt", minWidth: "40%" },
+  settleLabel: { padding: "1pt 8pt 1pt 0", textAlign: "left" },
+  settleValue: { padding: "1pt 0", textAlign: "right", fontVariantNumeric: "tabular-nums" },
+  settleTotal: { borderTop: "0.75pt solid #000", fontWeight: 700, paddingTop: "2.5pt" },
+
+  sign: { margin: "8pt 0 0", fontSize: "8.5pt" },
+
+  summary: { borderTop: "1.5pt solid #000", paddingTop: "6pt", marginTop: "4pt" },
+  summaryTitle: { fontSize: "10.5pt", fontWeight: 700, margin: "0 0 3pt" },
+};

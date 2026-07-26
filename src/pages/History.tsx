@@ -166,7 +166,7 @@ export default function HistoryPage() {
                   </div>
                   {week.totals.quantity > 0 && workerId === "all" && (
                     <div className="text-xs ink-2">
-                      {formatCount(week.totals.quantity)} pieces
+                      {formatCount(week.totals.quantity)} towels
                     </div>
                   )}
                 </div>

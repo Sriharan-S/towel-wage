@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Check, HandCoins, Lock, PencilLine, Printer } from "lucide-react";
 import { Toolbar } from "@/components/Toolbar";
@@ -17,10 +17,14 @@ import {
 } from "@/components/ui";
 import { useSetAdjustments, useSettleWeek, useToday, useWeek } from "@/lib/queries";
 import {
+  buildWeekGrid,
+  formatCellCount,
+  formatCellWage,
+} from "@/components/WeekGrid";
+import {
   formatDayLabel,
   formatWeekRange,
   relativeWeekLabel,
-  weekDays,
   weekStartOf,
 } from "@shared/dates";
 import { formatCount, formatINR, parseRupeeInput, toRupees } from "@shared/money";
@@ -138,22 +142,8 @@ export default function WorkerWage() {
    * quantity. Earnings come from each line's per-day figures, so a rate change
    * part-way through the week lands on the right days.
    */
-  const dayRows = weekDays(weekStart).map((date) => ({
-    date,
-    isToday: date === today,
-    quantity: worker.lineItems.reduce(
-      (sum, item) => sum + (item.kind === "direct_sum" ? 0 : (item.daily[date] ?? 0)),
-      0,
-    ),
-    wage: worker.lineItems.reduce((sum, item) => sum + (item.dailyWage[date] ?? 0), 0),
-  }));
-
-  const daysWorked = dayRows.filter((d) => d.quantity > 0 || d.wage > 0).length;
-
-  // Lines paid on the week's total belong under the daily table, not in it.
-  const weeklyItems = worker.lineItems.filter(
-    (item) => item.kind === "formula_sum_ratio" && (item.wage > 0 || item.totalQuantity > 0),
-  );
+  const grid = buildWeekGrid(worker, weekStart);
+  const daysWorked = grid.rows.filter((r) => r.cells.size > 0).length;
 
   const commit = (field: Field) => {
     if (readOnly || parsed[field] === worker.adjustments[field]) return;
@@ -291,7 +281,7 @@ export default function WorkerWage() {
                         : item.kind === "formula_sum_ratio"
                           ? `${formatCount(item.totalQuantity)} ÷ ${formatCount(item.divisor)} × ${formatINR(item.multiplier, { decimals: false })}`
                           : item.rateVaried
-                            ? `${formatCount(item.totalQuantity)} pieces · rate changed mid-week`
+                            ? `${formatCount(item.totalQuantity)} towels · rate changed mid-week`
                             : `${formatCount(item.totalQuantity)} × ${formatINR(item.unitPrice)}`}
                       {item.looms > 1 &&
                         ` · ${item.loomTotals.map((v) => formatCount(v)).join(" + ")}`}
@@ -303,73 +293,238 @@ export default function WorkerWage() {
             )}
           </Section>
 
-          {/* Day by day */}
+          {/*
+            Naming the payment sits straight under the breakdown: you read what
+            was earned, then say what you will hand over.
+          */}
+          {!readOnly && (
+            <Section title="Pay a specific amount">
+              <div className="p-3">
+                <p className="text-xs ink-2">
+                  Type what you intend to hand over and the difference is booked for you —
+                  over the wage and {worker.workerName} owes you the excess, under it and you
+                  owe them the shortfall.
+                </p>
+                <div className="mt-2 flex items-end gap-2">
+                  <label className="min-w-0 flex-1">
+                    <span className="mb-1 block text-[11px] font-medium ink-2">
+                      Amount to pay
+                    </span>
+                    <NumberInput
+                      value={payDraft}
+                      placeholder={String(toRupees(worker.settlement.netPayable))}
+                      aria-label={`Amount to pay ${worker.workerName}`}
+                      onChange={(e) => setPayDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") applyTarget();
+                      }}
+                    />
+                  </label>
+                  <Button
+                    size="md"
+                    variant="primary"
+                    onClick={applyTarget}
+                    disabled={parseRupeeInput(payDraft) <= 0 || payApplied}
+                  >
+                    {payApplied ? "Applied" : "Apply"}
+                  </Button>
+                </div>
+
+                {payPreview && (
+                  <p
+                    className="mt-2 rounded border px-2.5 py-1.5 text-xs"
+                    style={
+                      payApplied
+                        ? { background: "var(--pos-soft)", borderColor: "var(--line)" }
+                        : {
+                            background: "var(--accent-soft)",
+                            borderColor: "var(--accent-line)",
+                          }
+                    }
+                  >
+                    {payApplied ? "Set to pay " : "Pay "}
+                    <strong>{formatINR(payPreview.netPayable)}</strong> —{" "}
+                    {payPreview.credit > 0 && (
+                      <>
+                        {worker.workerName} {payApplied ? "owes" : "will owe"} you{" "}
+                        <strong>{formatINR(payPreview.credit)}</strong>, recovered next week.
+                      </>
+                    )}
+                    {payPreview.debit > 0 && (
+                      <>
+                        you {payApplied ? "owe" : "will owe"} {worker.workerName}{" "}
+                        <strong>{formatINR(payPreview.debit)}</strong>, carried to next week.
+                      </>
+                    )}
+                    {payPreview.credit === 0 &&
+                      payPreview.debit === 0 &&
+                      "exactly what is due, nothing carried."}
+                  </p>
+                )}
+              </div>
+            </Section>
+          )}
+
+          {/* Day by day, one column pair per towel type */}
           <Section
             title="Day by day"
-            meta={`${formatCount(dayRows.reduce((s, d) => s + d.quantity, 0))} pieces`}
+            meta={`${daysWorked} ${daysWorked === 1 ? "day" : "days"} worked`}
           >
-            <div
-              className="flex h-7 items-center gap-3 border-b px-3 text-[10px] font-medium uppercase tracking-wide ink-4"
-              style={{ borderColor: "var(--line)" }}
-            >
-              <span className="flex-1">Day</span>
-              <span className="w-20 text-right">Pieces</span>
-              <span className="w-24 text-right">Earned</span>
-            </div>
+            {grid.columns.length === 0 ? (
+              <p className="px-3 py-3 text-xs ink-3">Nothing recorded this week.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-max text-xs">
+                  <thead>
+                    <tr style={{ background: "var(--panel-2)" }}>
+                      <th
+                        className="sticky left-0 border-b px-3 py-1.5 text-left text-[10px] font-medium uppercase tracking-wide ink-4"
+                        style={{ background: "var(--panel-2)", borderColor: "var(--line)" }}
+                      >
+                        Day
+                      </th>
+                      {grid.columns.map((column) => (
+                        <th
+                          key={column.workTypeId}
+                          colSpan={2}
+                          className="border-b border-l px-3 py-1.5 text-center text-[11px] font-semibold"
+                          style={{ borderColor: "var(--line)" }}
+                        >
+                          <span className="flex items-center justify-center gap-1.5">
+                            <span
+                              className="h-2 w-2 shrink-0 rounded-full"
+                              style={{ background: column.color }}
+                            />
+                            {column.name}
+                          </span>
+                        </th>
+                      ))}
+                    </tr>
+                    <tr style={{ background: "var(--panel-2)" }}>
+                      <th
+                        className="sticky left-0 border-b px-3 pb-1.5 text-left text-[10px] ink-4"
+                        style={{ background: "var(--panel-2)", borderColor: "var(--line)" }}
+                      />
+                      {grid.columns.map((column) => (
+                        <Fragment key={column.workTypeId}>
+                          <th
+                            key={`${column.workTypeId}-q`}
+                            className="border-b border-l px-2 pb-1.5 text-right text-[10px] font-medium uppercase tracking-wide ink-4"
+                            style={{ borderColor: "var(--line)" }}
+                          >
+                            Towels
+                          </th>
+                          <th
+                            key={`${column.workTypeId}-p`}
+                            className="border-b px-2 pb-1.5 text-right text-[10px] font-medium uppercase tracking-wide ink-4"
+                            style={{ borderColor: "var(--line)" }}
+                          >
+                            Price
+                          </th>
+                        </Fragment>
+                      ))}
+                    </tr>
+                  </thead>
 
-            {dayRows.map((row) => (
-              <div
-                key={row.date}
-                className="flex items-center gap-3 border-b px-3 py-2 last:border-b-0"
-                style={{
-                  borderColor: "var(--line)",
-                  background: row.isToday ? "var(--accent-soft)" : undefined,
-                }}
-              >
-                <span className="min-w-0 flex-1 truncate text-xs">
-                  {formatDayLabel(row.date)}
-                  {row.isToday && <span className="ml-1.5 ink-3">today</span>}
-                </span>
-                <span className="w-20 text-right text-xs tnum">
-                  {row.quantity > 0 ? formatCount(row.quantity) : <span className="ink-4">—</span>}
-                </span>
-                <Money className="w-24 text-right text-xs font-medium">
-                  {row.wage > 0 ? formatINR(row.wage) : <span className="ink-4">—</span>}
-                </Money>
+                  <tbody>
+                    {grid.rows.map((row) => (
+                      <tr
+                        key={row.date}
+                        style={{
+                          background:
+                            row.date === today ? "var(--accent-soft)" : undefined,
+                        }}
+                      >
+                        <td
+                          className="sticky left-0 whitespace-nowrap border-b px-3 py-1.5"
+                          style={{
+                            borderColor: "var(--line)",
+                            background:
+                              row.date === today
+                                ? "var(--accent-soft)"
+                                : "var(--panel)",
+                          }}
+                        >
+                          {formatDayLabel(row.date)}
+                        </td>
+                        {grid.columns.map((column) => {
+                          const cell = row.cells.get(column.workTypeId);
+                          return (
+                            <Fragment key={column.workTypeId}>
+                              <td
+                                key={`${column.workTypeId}-q`}
+                                className="tnum border-b border-l px-2 py-1.5 text-right"
+                                style={{ borderColor: "var(--line)" }}
+                              >
+                                {formatCellCount(cell)}
+                              </td>
+                              <td
+                                key={`${column.workTypeId}-p`}
+                                className="tnum border-b px-2 py-1.5 text-right"
+                                style={{ borderColor: "var(--line)" }}
+                              >
+                                {formatCellWage(cell, column.weeklyOnly)}
+                              </td>
+                            </Fragment>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+
+                  <tfoot>
+                    <tr
+                      className="font-semibold"
+                      style={{ background: "var(--panel-2)" }}
+                    >
+                      <td
+                        className="sticky left-0 border-t px-3 py-2"
+                        style={{
+                          background: "var(--panel-2)",
+                          borderColor: "var(--line-strong)",
+                        }}
+                      >
+                        Total
+                      </td>
+                      {grid.columns.map((column) => (
+                        <Fragment key={column.workTypeId}>
+                          <td
+                            key={`${column.workTypeId}-q`}
+                            className="tnum border-l border-t px-2 py-2 text-right"
+                            style={{ borderColor: "var(--line-strong)" }}
+                          >
+                            {column.totalQuantity > 0
+                              ? formatCount(column.totalQuantity)
+                              : "—"}
+                          </td>
+                          <td
+                            key={`${column.workTypeId}-p`}
+                            className="tnum border-t px-2 py-2 text-right"
+                            style={{ borderColor: "var(--line-strong)" }}
+                          >
+                            {formatINR(column.totalWage)}
+                          </td>
+                        </Fragment>
+                      ))}
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
-            ))}
+            )}
 
-            <div
-              className="flex items-center gap-3 border-t px-3 py-2 text-xs font-semibold"
-              style={{ background: "var(--panel-2)", borderColor: "var(--line-strong)" }}
-            >
-              <span className="flex-1">
-                {daysWorked} {daysWorked === 1 ? "day" : "days"} worked
-              </span>
-              <span className="w-20 text-right tnum">
-                {formatCount(dayRows.reduce((s, d) => s + d.quantity, 0))}
-              </span>
-              <Money className="w-24 text-right">
-                {formatINR(dayRows.reduce((s, d) => s + d.wage, 0))}
-              </Money>
-            </div>
-
-            {/* Anything paid on the week's total, not on any one day */}
-            {weeklyItems.map((item) => (
-              <div
-                key={item.workTypeId}
-                className="flex items-center gap-3 border-t px-3 py-1.5 text-[11px]"
+            {grid.columns.some((c) => c.weeklyOnly) && (
+              <p
+                className="border-t px-3 py-1.5 text-[11px] ink-3"
                 style={{ borderColor: "var(--line)" }}
               >
-                <span className="flex-1 ink-2">
-                  {item.name} — paid on the week's total
-                </span>
-                <span className="w-20 text-right tnum ink-3">
-                  {formatCount(item.totalQuantity)}
-                </span>
-                <Money className="w-24 text-right font-medium">{formatINR(item.wage)}</Money>
-              </div>
-            ))}
+                {grid.columns
+                  .filter((c) => c.weeklyOnly)
+                  .map((c) => c.name)
+                  .join(", ")}{" "}
+                {grid.columns.filter((c) => c.weeklyOnly).length === 1 ? "is" : "are"} paid on
+                the week's total, so the daily prices are blank.
+              </p>
+            )}
           </Section>
 
           {/* Advances */}
@@ -459,75 +614,6 @@ export default function WorkerWage() {
                 })
               }
             />
-          )}
-
-          {/* Name the payment yourself */}
-          {!readOnly && (
-            <Section title="Pay a specific amount">
-              <div className="p-3">
-                <p className="text-xs ink-2">
-                  Type what you intend to hand over and the difference is booked for you —
-                  over the wage and {worker.workerName} owes you the excess, under it and you
-                  owe them the shortfall.
-                </p>
-                <div className="mt-2 flex items-end gap-2">
-                  <label className="min-w-0 flex-1">
-                    <span className="mb-1 block text-[11px] font-medium ink-2">
-                      Amount to pay
-                    </span>
-                    <NumberInput
-                      value={payDraft}
-                      placeholder={String(toRupees(worker.settlement.netPayable))}
-                      aria-label={`Amount to pay ${worker.workerName}`}
-                      onChange={(e) => setPayDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") applyTarget();
-                      }}
-                    />
-                  </label>
-                  <Button
-                    size="md"
-                    variant="primary"
-                    onClick={applyTarget}
-                    disabled={parseRupeeInput(payDraft) <= 0 || payApplied}
-                  >
-                    {payApplied ? "Applied" : "Apply"}
-                  </Button>
-                </div>
-
-                {payPreview && (
-                  <p
-                    className="mt-2 rounded border px-2.5 py-1.5 text-xs"
-                    style={
-                      payApplied
-                        ? { background: "var(--pos-soft)", borderColor: "var(--line)" }
-                        : {
-                            background: "var(--accent-soft)",
-                            borderColor: "var(--accent-line)",
-                          }
-                    }
-                  >
-                    {payApplied ? "Set to pay " : "Pay "}
-                    <strong>{formatINR(payPreview.netPayable)}</strong> —{" "}
-                    {payPreview.credit > 0 && (
-                      <>
-                        {worker.workerName} {payApplied ? "owes" : "will owe"} you{" "}
-                        <strong>{formatINR(payPreview.credit)}</strong>, recovered next week.
-                      </>
-                    )}
-                    {payPreview.debit > 0 && (
-                      <>
-                        you {payApplied ? "owe" : "will owe"} {worker.workerName}{" "}
-                        <strong>{formatINR(payPreview.debit)}</strong>, carried to next week.
-                      </>
-                    )}
-                    {payPreview.credit === 0 &&
-                      payPreview.debit === 0 &&
-                      "exactly what is due, nothing carried."}
-                  </p>
-                )}
-              </div>
-            </Section>
           )}
 
           {/* Adjustments */}

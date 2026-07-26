@@ -46,10 +46,11 @@ function cookieOptions(url: string) {
 app.get("/session", async (c) => {
   const settings = await loadSettings(c.env.DB);
   const token = getCookie(c, SESSION_COOKIE);
-  const authenticated = await verifySession(c.env.DB, c.env, settings.timezone, token);
+  const role = await verifySession(c.env.DB, c.env, settings.timezone, token);
 
   return c.json({
-    authenticated,
+    authenticated: role !== null,
+    role,
     configured: readConfiguredPin(c.env) !== null,
     businessName: settings.businessName,
   });
@@ -105,10 +106,16 @@ app.post("/login", async (c) => {
     c.env,
     settings.timezone,
     c.req.header("user-agent") ?? null,
+    // checkPin only reports ok when a PIN matched, so the role is set here.
+    result.role ?? "admin",
   );
   setCookie(c, SESSION_COOKIE, session.token, cookieOptions(c.req.url));
 
-  return c.json({ authenticated: true, validFor: session.validFor });
+  return c.json({
+    authenticated: true,
+    role: session.role,
+    validFor: session.validFor,
+  });
 });
 
 app.post("/logout", async (c) => {

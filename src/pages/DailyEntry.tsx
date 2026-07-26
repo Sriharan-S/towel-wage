@@ -10,6 +10,7 @@ import {
   ChevronUp,
   Copy,
   Lock,
+  Wallet,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/AppShell";
 import { CalendarPopover, WeekStrip } from "@/components/Calendar";
@@ -206,15 +207,24 @@ export default function DailyEntry() {
           </span>
         }
         action={
-          <Button
-            icon={<Copy size={13} />}
-            onClick={copyYesterday}
-            loading={copyDay.isPending}
-            disabled={isFinalized}
-            title="Copy yesterday's figures onto this day"
-          >
-            Copy yesterday
-          </Button>
+          <>
+            <Button
+              icon={<Wallet size={13} />}
+              onClick={() => navigate(`/week/${weekStart}`)}
+              title="Open this week's wages"
+            >
+              Jump to this week
+            </Button>
+            <Button
+              icon={<Copy size={13} />}
+              onClick={copyYesterday}
+              loading={copyDay.isPending}
+              disabled={isFinalized}
+              title="Copy yesterday's figures onto this day"
+            >
+              Copy yesterday
+            </Button>
+          </>
         }
       >
         <div className="flex items-center gap-2">
@@ -519,7 +529,7 @@ function WorkerEntry({
             {ordered.map(({ rate, workType }, index) => {
               const count = looms[workType.id] ?? 1;
               const value = lineValue(workType.kind, workType.id, rate.unitPrice);
-              const pieces = lineCount(workType.id);
+              const towels = lineCount(workType.id);
 
               if (reordering) {
                 return (
@@ -567,17 +577,24 @@ function WorkerEntry({
                         ? "amount in ₹"
                         : `${formatCount(rate.divisor)} = ${formatINR(rate.multiplier)}`
                   }
+                  /*
+                    The running tally for this line: how many towels, and what
+                    they come to. Shown as soon as anything is typed, so the
+                    figure can be checked against the floor count without
+                    waiting for the day total.
+                  */
                   value={
                     workType.kind === "formula_sum_ratio"
-                      ? pieces > 0
-                        ? `${formatCount(pieces)} · weekly`
+                      ? towels > 0
+                        ? `${formatCount(towels)} towels · weekly`
                         : undefined
-                      : value
-                        ? count > 1
-                          ? `${formatCount(pieces)} = ${formatINR(value)}`
-                          : formatINR(value)
-                        : undefined
+                      : workType.kind === "direct_sum"
+                        ? undefined
+                        : towels > 0
+                          ? `${formatCount(towels)} towels`
+                          : undefined
                   }
+                  subValue={value ? formatINR(value) : undefined}
                   values={Array.from(
                     { length: count },
                     (_, i) => values[cellKey(workType.id, i + 1)] ?? "",

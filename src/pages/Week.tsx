@@ -313,7 +313,7 @@ export default function Week() {
                 <span className="text-xs font-semibold">
                   Total payout
                   <span className="ml-2 font-normal ink-3">
-                    {formatCount(t.quantity)} pieces
+                    {formatCount(t.quantity)} towels
                   </span>
                 </span>
                 <Money className="text-xl font-semibold" tone="positive">

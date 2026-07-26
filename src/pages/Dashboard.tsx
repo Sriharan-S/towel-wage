@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, PencilLine } from "lucide-react";
+import { PencilLine } from "lucide-react";
 import { PageBody, PageHeader } from "@/components/layout/AppShell";
 import { Badge, Button, Panel, EmptyState, ErrorState, Select, Spinner } from "@/components/ui";
 import { StatTile } from "@/components/charts/StatTile";
@@ -64,31 +64,6 @@ export default function Dashboard() {
           </Panel>
         ) : (
           <>
-            {/* Missing days are the thing most worth surfacing: a forgotten day
-                silently understates someone's pay on Saturday. */}
-            {kpis.missingDays.length > 0 && (
-              <div
-                className="flex items-start gap-2 rounded-xl px-3 py-2.5 text-sm"
-                style={{ background: "var(--warn-soft)", color: "var(--warn)" }}
-              >
-                <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-                <p>
-                  Not recorded yet this week:{" "}
-                  {kpis.missingDays.map((date, i) => (
-                    <span key={date}>
-                      {i > 0 && ", "}
-                      <Link
-                        to={`/entry/${date}`}
-                        className="font-medium underline underline-offset-2"
-                      >
-                        {formatDayLabel(date)}
-                      </Link>
-                    </span>
-                  ))}
-                </p>
-              </div>
-            )}
-
             {/* Hero figure — exactly one per view. */}
             <Panel className="p-5">
               <p className="text-sm ink-2">Wages this week</p>
@@ -102,7 +77,7 @@ export default function Dashboard() {
                     week
                   </Badge>
                 )}
-                <Badge tone="accent">{formatCount(kpis.thisWeekQuantity)} pieces</Badge>
+                <Badge tone="accent">{formatCount(kpis.thisWeekQuantity)} towels</Badge>
                 <Badge>{kpis.activeWorkers} workers</Badge>
                 <Link
                   to={`/week/${currentWeek}`}
@@ -121,7 +96,7 @@ export default function Dashboard() {
                 hint="Full Sun–Sat week"
               />
               <StatTile
-                label="Pieces this week"
+                label="Towels this week"
                 value={formatCount(kpis.thisWeekQuantity)}
                 delta={quantityDelta}
                 deltaLabel="vs last week"

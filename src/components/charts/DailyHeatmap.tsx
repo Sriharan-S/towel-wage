@@ -57,11 +57,11 @@ export function DailyHeatmap({ stats }: { stats: DashboardStats }) {
       subtitle={
         missing.length > 0
           ? `${missing.length} day${missing.length === 1 ? "" : "s"} this week not recorded yet`
-          : `Last ${columns.length} weeks — darker means more pieces`
+          : `Last ${columns.length} weeks — darker means more towels`
       }
       table={
         <DataTable
-          columns={["Day", "Pieces", "Wage"]}
+          columns={["Day", "Towels", "Wage"]}
           align={["left", "right", "right"]}
           rows={[...stats.daily]
             .reverse()
@@ -108,9 +108,9 @@ export function DailyHeatmap({ stats }: { stats: DashboardStats }) {
                         onMouseLeave={() => setHovered(null)}
                         onFocus={() => setHovered(day.date)}
                         onBlur={() => setHovered(null)}
-                        aria-label={`${DAY_NAMES[dow]} ${day.date}: ${formatCount(day.quantity)} pieces`}
+                        aria-label={`${DAY_NAMES[dow]} ${day.date}: ${formatCount(day.quantity)} towels`}
                         title={`${formatDayLabel(day.date)} — ${
-                          isMissing ? "nothing recorded" : `${formatCount(day.quantity)} pieces`
+                          isMissing ? "nothing recorded" : `${formatCount(day.quantity)} towels`
                         }`}
                       >
                         <span
@@ -158,7 +158,7 @@ export function DailyHeatmap({ stats }: { stats: DashboardStats }) {
               <span className="ink-2">
                 {hoveredDay.entryCount === 0
                   ? "— nothing recorded"
-                  : `— ${formatCount(hoveredDay.quantity)} pieces · ${formatINR(hoveredDay.wage)}`}
+                  : `— ${formatCount(hoveredDay.quantity)} towels · ${formatINR(hoveredDay.wage)}`}
               </span>
             </p>
           ) : (

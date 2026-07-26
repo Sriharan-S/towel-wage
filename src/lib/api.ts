@@ -196,8 +196,17 @@ export type DeleteResult =
   | { deleted: true }
   | { deactivated: true; entryCount: number; message: string };
 
+/**
+ * admin   — everything
+ * manager — stats, entry, wages and advances; no settings, workers or towel
+ *           types, because those decide what people are paid
+ */
+export type Role = "admin" | "manager";
+
 export interface SessionState {
   authenticated: boolean;
+  /** which PIN was used; null when signed out */
+  role: Role | null;
   /** false when no APP_PIN secret is set on the Worker */
   configured: boolean;
   businessName: string;
@@ -207,7 +216,11 @@ export const api = {
   auth: {
     session: () => request<SessionState>("/auth/session"),
     login: (pin: string) =>
-      send<{ authenticated: true; validFor: string }>("POST", "/auth/login", { pin }),
+      send<{ authenticated: true; role: Role; validFor: string }>(
+        "POST",
+        "/auth/login",
+        { pin },
+      ),
     logout: () => send<{ authenticated: false }>("POST", "/auth/logout"),
   },
 
@@ -223,7 +236,11 @@ export const api = {
     reorder: (ids: number[]) => send<{ ok: true }>("PUT", "/workers/reorder", { ids }),
     rates: (id: number) => request<WorkerRate[]>(`/workers/${id}/rates`),
     setRates: (id: number, rates: RateInput[]) =>
-      send<WorkerRate[]>("PUT", `/workers/${id}/rates`, { rates }),
+      send<{ rates: WorkerRate[]; entriesRepriced: number }>(
+        "PUT",
+        `/workers/${id}/rates`,
+        { rates },
+      ),
     /** Set the order this worker's towel types are entered in each day. */
     reorderRates: (id: number, workTypeIds: number[]) =>
       send<WorkerRate[]>("PUT", `/workers/${id}/rates/order`, { workTypeIds }),
@@ -232,8 +249,15 @@ export const api = {
   workTypes: {
     list: () => request<WorkType[]>("/work-types"),
     create: (body: Record<string, unknown>) => send<WorkType>("POST", "/work-types", body),
-    update: (id: number, body: Partial<WorkType>) =>
-      send<WorkType>("PATCH", `/work-types/${id}`, body),
+    update: (
+      id: number,
+      body: Partial<WorkType> & { applyToWorkers?: boolean },
+    ) =>
+      send<WorkType & { workersUpdated: number; entriesRepriced: number }>(
+        "PATCH",
+        `/work-types/${id}`,
+        body,
+      ),
     remove: (id: number) => send<DeleteResult>("DELETE", `/work-types/${id}`),
     reorder: (ids: number[]) => send<{ ok: true }>("PUT", "/work-types/reorder", { ids }),
   },

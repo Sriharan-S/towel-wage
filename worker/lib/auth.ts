@@ -45,10 +45,14 @@ export function newToken(): string {
   return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+export type Role = "admin" | "manager";
+
 export interface PinCheck {
   ok: boolean;
   /** true when the server has no PIN configured at all */
   unconfigured: boolean;
+  /** which PIN matched, or null if neither did */
+  role: Role | null;
 }
 
 /**
@@ -65,12 +69,38 @@ export function readConfiguredPin(env: Env): string | null {
   return pin && /^\d{4}$/.test(pin) ? pin : null;
 }
 
+/**
+ * The manager PIN, if one is set.
+ *
+ * Optional: with no MANAGER_PIN the app simply has one level of access, which
+ * is how it behaved before roles existed.
+ */
+export function readManagerPin(env: Env): string | null {
+  const pin = (env as { MANAGER_PIN?: string }).MANAGER_PIN?.trim();
+  if (!pin || !/^\d{4}$/.test(pin)) return null;
+  // A manager PIN identical to the admin one would silently grant admin, which
+  // is the opposite of what setting it was meant to do.
+  return pin === readConfiguredPin(env) ? null : pin;
+}
+
 export function checkPin(env: Env, candidate: string): PinCheck {
-  const configured = readConfiguredPin(env);
+  const admin = readConfiguredPin(env);
+  const manager = readManagerPin(env);
+
   // Fail closed. An unset or malformed PIN locks the app rather than opening
   // it — the alternative would silently publish the data.
-  if (!configured) return { ok: false, unconfigured: true };
-  return { ok: timingSafeEqual(configured, candidate), unconfigured: false };
+  if (!admin) return { ok: false, unconfigured: true, role: null };
+
+  // Both are compared every time, so the response takes the same work whether
+  // the first one matched or not.
+  const isAdmin = timingSafeEqual(admin, candidate);
+  const isManager = manager !== null && timingSafeEqual(manager, candidate);
+
+  return {
+    ok: isAdmin || isManager,
+    unconfigured: false,
+    role: isAdmin ? "admin" : isManager ? "manager" : null,
+  };
 }
 
 /** The caller's address, as Cloudflare sees it. */
@@ -123,28 +153,32 @@ export async function createSession(
   env: Env,
   timezone: string,
   userAgent: string | null,
-): Promise<{ token: string; validFor: string }> {
+  role: Role,
+): Promise<{ token: string; validFor: string; role: Role }> {
   const token = newToken();
   const validFor = todayISO(timezone);
-  const pin = readConfiguredPin(env);
+  // Hash the PIN this role actually signed in with, so changing either PIN
+  // signs out only the sessions it opened.
+  const pin = role === "manager" ? readManagerPin(env) : readConfiguredPin(env);
 
   await db.batch([
     db
       .prepare(
-        `INSERT INTO auth_sessions (token_hash, pin_hash, valid_for, user_agent)
-         VALUES (?, ?, ?, ?)`,
+        `INSERT INTO auth_sessions (token_hash, pin_hash, valid_for, user_agent, role)
+         VALUES (?, ?, ?, ?, ?)`,
       )
       .bind(
         await sha256Hex(token),
         await sha256Hex(pin ?? ""),
         validFor,
         userAgent?.slice(0, 200) ?? null,
+        role,
       ),
     // Yesterday's sessions are dead by definition; clear them out.
     db.prepare("DELETE FROM auth_sessions WHERE valid_for < ?").bind(validFor),
   ]);
 
-  return { token, validFor };
+  return { token, validFor, role };
 }
 
 /**
@@ -159,19 +193,26 @@ export async function verifySession(
   env: Env,
   timezone: string,
   token: string | undefined,
-): Promise<boolean> {
-  if (!token) return false;
-  const pin = readConfiguredPin(env);
-  if (!pin) return false;
+): Promise<Role | null> {
+  if (!token) return null;
+  // No admin PIN means the app is unconfigured and nothing is valid.
+  if (!readConfiguredPin(env)) return null;
 
   const row = await db
-    .prepare("SELECT pin_hash, valid_for FROM auth_sessions WHERE token_hash = ?")
+    .prepare("SELECT pin_hash, valid_for, role FROM auth_sessions WHERE token_hash = ?")
     .bind(await sha256Hex(token))
-    .first<{ pin_hash: string; valid_for: string }>();
+    .first<{ pin_hash: string; valid_for: string; role: string }>();
 
-  if (!row) return false;
-  if (row.valid_for !== todayISO(timezone)) return false;
-  return timingSafeEqual(row.pin_hash, await sha256Hex(pin));
+  if (!row) return null;
+  if (row.valid_for !== todayISO(timezone)) return null;
+
+  const role: Role = row.role === "manager" ? "manager" : "admin";
+  const pin = role === "manager" ? readManagerPin(env) : readConfiguredPin(env);
+  if (!pin) return null;
+
+  // The session is only good while the PIN that opened it is still the one
+  // configured — changing a PIN signs out the sessions it created.
+  return timingSafeEqual(row.pin_hash, await sha256Hex(pin)) ? role : null;
 }
 
 export async function destroySession(db: D1Database, token: string | undefined): Promise<void> {

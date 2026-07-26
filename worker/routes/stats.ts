@@ -245,7 +245,7 @@ app.get("/worker/:workerId", async (c) => {
       weekStart,
       wage,
       quantity,
-      // Blended rate actually achieved, in paise per piece.
+      // Blended rate actually achieved, in paise per towel.
       effectiveRate: quantity > 0 ? Math.round(wage / quantity) : 0,
       byWorkType: items.map((i) => ({
         workTypeId: i.workTypeId,

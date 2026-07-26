@@ -118,11 +118,11 @@ export default function WorkerDetail() {
             value={formatINR(totalWage, { decimals: false })}
           />
           <StatTile label="Average week" value={formatINR(avgWage, { decimals: false })} />
-          <StatTile label="Pieces handled" value={formatCount(totalQuantity)} />
+          <StatTile label="Towels handled" value={formatCount(totalQuantity)} />
           <StatTile
             label="Blended rate"
             value={blendedRate ? formatINR(blendedRate) : "—"}
-            hint="Per piece, all types"
+            hint="Per towel, all types"
           />
         </div>
 
@@ -132,7 +132,7 @@ export default function WorkerDetail() {
             subtitle={`${worker.name} · last ${trend.length} weeks`}
             table={
               <DataTable
-                columns={["Week", "Wage", "Pieces"]}
+                columns={["Week", "Wage", "Towels"]}
                 align={["left", "right", "right"]}
                 rows={[...trend]
                   .reverse()
@@ -181,9 +181,9 @@ export default function WorkerDetail() {
                             value: formatINR(point.wage * 100),
                             color: theme.series(0),
                           },
-                          { label: "Pieces", value: formatCount(point.quantity) },
+                          { label: "Towels", value: formatCount(point.quantity) },
                           {
-                            label: "Per piece",
+                            label: "Per towel",
                             value: point.effectiveRate
                               ? formatINR(point.effectiveRate * 100)
                               : "—",
@@ -225,7 +225,7 @@ export default function WorkerDetail() {
             }
             table={
               <DataTable
-                columns={["Type", "Wage", "Pieces"]}
+                columns={["Type", "Wage", "Towels"]}
                 align={["left", "right", "right"]}
                 rows={mixRows.map((m) => [
                   m.name,

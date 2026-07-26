@@ -23,7 +23,7 @@ export const WORK_KIND_LABELS: Record<WorkKind, string> = {
 
 export const WORK_KIND_HELP: Record<WorkKind, string> = {
   count_x_price:
-    "Enter how many were done each day. Wage = count x price per piece.",
+    "Enter how many were done each day. Wage = count x price per towel.",
   direct_sum:
     "Enter the rupee amount for the day directly. Wage = the week's amounts added up.",
   formula_sum_ratio:
@@ -184,6 +184,13 @@ export interface LineItemResult {
    * defined over the week's total and cannot honestly be split across days.
    */
   dailyWage: Record<ISODate, number>;
+  /**
+   * Each day's figure split by loom, keyed by ISO date.
+   *
+   * A day run on two looms reads as [10, 15] rather than 25, which is how the
+   * work is counted on the floor and how it is checked afterwards.
+   */
+  dailyByLoom: Record<ISODate, number[]>;
   daysWorked: number;
   /** how many looms this worker ran on this type during the week */
   looms: number;
