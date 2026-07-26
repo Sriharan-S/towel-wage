@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Check, HandCoins, Lock, PencilLine } from "lucide-react";
+import { ArrowLeft, Check, HandCoins, Lock, PencilLine, Printer } from "lucide-react";
+import { Toolbar } from "@/components/Toolbar";
 import { PageHeader } from "@/components/layout/AppShell";
 import { SettlementPlan } from "@/components/SettlementPlan";
 import {
@@ -227,18 +228,27 @@ export default function WorkerWage() {
           </span>
         }
         action={
-          <>
-            <Button
-              icon={<PencilLine size={13} />}
-              onClick={() => navigate(`/entry/${weekStart}`)}
-              title="Open this week's daily entry, starting at the Sunday"
-            >
-              Jump to the week
-            </Button>
-            <Button icon={<ArrowLeft size={13} />} onClick={back}>
-              All workers
-            </Button>
-          </>
+          <Toolbar
+            items={[
+              {
+                label: "All workers",
+                icon: <ArrowLeft size={15} />,
+                keepVisible: true,
+                onClick: back,
+              },
+              {
+                label: "Jump to the week",
+                icon: <PencilLine size={15} />,
+                hint: "Daily entry, from the Sunday",
+                onClick: () => navigate(`/entry/${weekStart}`),
+              },
+              {
+                label: "Print payout sheet",
+                icon: <Printer size={15} />,
+                onClick: () => window.print(),
+              },
+            ]}
+          />
         }
       />
 

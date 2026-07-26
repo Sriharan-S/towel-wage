@@ -21,14 +21,27 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Fired when the server says the session is gone, so the PIN gate can put the
+ * sign-in screen back up wherever the user happens to be.
+ */
+export const SESSION_EXPIRED = "session-expired";
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...init,
+    // Send the session cookie. Same-origin is the default, but being explicit
+    // means this keeps working if the API ever moves to another host.
+    credentials: "same-origin",
     headers: {
       ...(init?.body ? { "content-type": "application/json" } : {}),
       ...init?.headers,
     },
   });
+
+  if (response.status === 401 && !path.startsWith("/auth/")) {
+    document.dispatchEvent(new CustomEvent(SESSION_EXPIRED));
+  }
 
   if (!response.ok) {
     // The API always returns { error } on failure; fall back if it didn't.
@@ -183,7 +196,21 @@ export type DeleteResult =
   | { deleted: true }
   | { deactivated: true; entryCount: number; message: string };
 
+export interface SessionState {
+  authenticated: boolean;
+  /** false when no APP_PIN secret is set on the Worker */
+  configured: boolean;
+  businessName: string;
+}
+
 export const api = {
+  auth: {
+    session: () => request<SessionState>("/auth/session"),
+    login: (pin: string) =>
+      send<{ authenticated: true; validFor: string }>("POST", "/auth/login", { pin }),
+    logout: () => send<{ authenticated: false }>("POST", "/auth/logout"),
+  },
+
   bootstrap: () => request<Bootstrap>("/bootstrap"),
 
   workers: {

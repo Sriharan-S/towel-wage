@@ -7,6 +7,7 @@ import {
   HandCoins,
   Lock,
   LockOpen,
+  LogOut,
   PencilLine,
   Printer,
   Share2,
@@ -30,9 +31,11 @@ import {
   useBootstrap,
   useFinalizeWeek,
   useSettleWeek,
+  useSignOut,
   useToday,
   useWeek,
 } from "@/lib/queries";
+import { Toolbar } from "@/components/Toolbar";
 import { addWeeks, formatWeekRange, relativeWeekLabel, weekStartOf } from "@shared/dates";
 import { formatCount, formatINR } from "@shared/money";
 
@@ -46,7 +49,9 @@ export default function Week() {
   const bootstrap = useBootstrap();
   const settle = useSettleWeek(weekStart);
   const finalize = useFinalizeWeek(weekStart);
+  const logout = useSignOut();
   const { toast } = useToast();
+  const signOut = () => logout.mutate();
 
   const [confirming, setConfirming] = useState<"finalize" | "reopen" | "settle" | null>(null);
 
@@ -102,34 +107,55 @@ export default function Week() {
           </span>
         }
         action={
-          <>
-            <Button
-              icon={<PencilLine size={13} />}
-              onClick={() => navigate(`/entry/${weekStart}`)}
-              title="Open this week's daily entry, starting at the Sunday"
-            >
-              Jump to the week
-            </Button>
-            <Button icon={<Printer size={13} />} onClick={() => window.print()}>
-              Print
-            </Button>
-            <Button icon={<Share2 size={13} />} onClick={shareSummary}>
-              Share
-            </Button>
-            {isFinalized ? (
-              <Button icon={<LockOpen size={13} />} onClick={() => setConfirming("reopen")}>
-                Reopen
-              </Button>
-            ) : (
-              <Button
-                icon={<Lock size={13} />}
-                onClick={() => setConfirming("finalize")}
-                disabled={week.data.workers.length === 0}
-              >
-                Finalize
-              </Button>
-            )}
-          </>
+          <Toolbar
+            items={[
+              ...(!isFinalized && unsettled > 0
+                ? [
+                    {
+                      label: "Settle all",
+                      icon: <Wand2 size={15} />,
+                      variant: "primary" as const,
+                      keepVisible: true,
+                      loading: settle.isPending,
+                      hint: `${unsettled} still to settle`,
+                      onClick: () => setConfirming("settle"),
+                    },
+                  ]
+                : []),
+              {
+                label: "Jump to the week",
+                icon: <PencilLine size={15} />,
+                hint: "Daily entry, from the Sunday",
+                onClick: () => navigate(`/entry/${weekStart}`),
+              },
+              {
+                label: "Print payout sheet",
+                icon: <Printer size={15} />,
+                onClick: () => window.print(),
+              },
+              { label: "Share summary", icon: <Share2 size={15} />, onClick: shareSummary },
+              isFinalized
+                ? {
+                    label: "Reopen week",
+                    icon: <LockOpen size={15} />,
+                    hint: "Unfreeze and recalculate",
+                    onClick: () => setConfirming("reopen"),
+                  }
+                : {
+                    label: "Finalize week",
+                    icon: <Lock size={15} />,
+                    hint: "Lock entries, freeze the payout",
+                    disabled: week.data.workers.length === 0,
+                    onClick: () => setConfirming("finalize"),
+                  },
+              {
+                label: "Sign out",
+                icon: <LogOut size={15} />,
+                variant: "danger" as const,
+                onClick: signOut,
+              },
+            ]}
+          />
         }
       >
         <div className="flex items-center gap-2">
@@ -156,17 +182,6 @@ export default function Week() {
             onClick={() => goto(addWeeks(weekStart, 1))}
             aria-label="Next week"
           />
-          {!isFinalized && unsettled > 0 && (
-            <Button
-              className="ml-auto"
-              variant="primary"
-              icon={<Wand2 size={13} />}
-              onClick={() => setConfirming("settle")}
-              loading={settle.isPending}
-            >
-              Settle all ({unsettled})
-            </Button>
-          )}
         </div>
       </PageHeader>
 

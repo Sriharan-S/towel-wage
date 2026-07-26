@@ -163,12 +163,26 @@ export function PageHeader({
       className="safe-top z-30 shrink-0 border-b"
       style={{ background: "var(--panel)", borderColor: "var(--line)" }}
     >
-      <div className="mx-auto flex h-11 max-w-[1400px] items-center gap-3 px-3 lg:px-5">
-        <h1 className="shrink-0 text-sm font-semibold">{title}</h1>
-        {meta && <div className="min-w-0 flex-1 truncate text-xs ink-3">{meta}</div>}
-        {!meta && <div className="flex-1" />}
+      {/*
+        The actions never shrink and never wrap; the title and meta give way to
+        them instead. Anything that cannot fit belongs in the Toolbar's menu.
+      */}
+      <div className="mx-auto flex h-11 max-w-[1400px] items-center gap-2 px-3 lg:gap-3 lg:px-5">
+        <div className="flex min-w-0 flex-1 items-baseline gap-2">
+          <h1 className="truncate text-sm font-semibold">{title}</h1>
+          {meta && <div className="hidden min-w-0 truncate text-xs ink-3 sm:block">{meta}</div>}
+        </div>
         {action && <div className="no-print flex shrink-0 items-center gap-1.5">{action}</div>}
       </div>
+      {/* On a phone the meta gets its own line rather than fighting for space. */}
+      {meta && (
+        <div
+          className="mx-auto max-w-[1400px] truncate px-3 pb-1.5 text-xs ink-3 sm:hidden"
+          style={{ marginTop: "-0.25rem" }}
+        >
+          {meta}
+        </div>
+      )}
       {children && (
         <div
           className="mx-auto max-w-[1400px] border-t px-3 py-2 lg:px-5"

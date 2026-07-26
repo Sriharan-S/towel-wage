@@ -8,8 +8,10 @@
  */
 
 import { Hono } from "hono";
+import { getCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 import { todayISO } from "@shared/dates";
+import { SESSION_COOKIE, verifySession } from "./lib/auth";
 import type { AppEnv } from "./lib/http";
 import {
   loadSettings,
@@ -28,8 +30,30 @@ import stats from "./routes/stats";
 import settings from "./routes/settings";
 import backup from "./routes/backup";
 import advances from "./routes/advances";
+import auth from "./routes/auth";
 
 const app = new Hono<AppEnv>();
+
+/**
+ * Nothing but the sign-in routes and a health check is reachable without a
+ * session.
+ *
+ * The static assets are still served publicly — they are just the empty shell
+ * of the app and contain no business data. The gate that matters is this one,
+ * in front of everything that touches the database.
+ */
+app.use("/api/*", async (c, next) => {
+  const path = c.req.path;
+  if (path.startsWith("/api/auth/") || path === "/api/health") return next();
+
+  const settings = await loadSettings(c.env.DB);
+  const token = getCookie(c, SESSION_COOKIE);
+
+  if (!(await verifySession(c.env.DB, c.env, settings.timezone, token))) {
+    return c.json({ error: "Not signed in." }, 401);
+  }
+  return next();
+});
 
 /**
  * Everything the app needs to render its first screen, in a single round trip.
@@ -54,6 +78,7 @@ app.get("/api/bootstrap", async (c) => {
 
 app.get("/api/health", (c) => c.json({ ok: true }));
 
+app.route("/api/auth", auth);
 app.route("/api/workers", workers);
 app.route("/api/work-types", workTypes);
 app.route("/api/entries", entries);

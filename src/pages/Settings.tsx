@@ -5,6 +5,7 @@ import {
   Database,
   Download,
   Layers,
+  LogOut,
   Upload,
   Users,
 } from "lucide-react";
@@ -20,7 +21,7 @@ import {
   Spinner,
   useToast,
 } from "@/components/ui";
-import { useBootstrap, useUpdateSettings } from "@/lib/queries";
+import { useBootstrap, useSignOut, useUpdateSettings } from "@/lib/queries";
 import { api } from "@/lib/api";
 import {
   ROUNDING_MODES,
@@ -44,6 +45,7 @@ export default function Settings() {
   const navigate = useNavigate();
   const bootstrap = useBootstrap();
   const updateSettings = useUpdateSettings();
+  const signOut = useSignOut();
   const { toast } = useToast();
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -236,6 +238,26 @@ export default function Settings() {
               onClick={pickRestoreFile}
             >
               Restore from a backup file
+            </Button>
+          </div>
+        </Panel>
+
+        <Panel>
+          <PanelHeader title="Session" meta="PIN sign-in" />
+          <div className="space-y-2 p-4">
+            <p className="text-xs ink-2">
+              Your PIN is set as an <code className="font-mono">APP_PIN</code> secret on the
+              Worker and can be changed there at any time — changing it signs out every device
+              immediately. A sign-in lasts until the end of the day.
+            </p>
+            <Button
+              className="w-full"
+              variant="danger"
+              icon={<LogOut size={16} />}
+              onClick={() => signOut.mutate()}
+              loading={signOut.isPending}
+            >
+              Sign out
             </Button>
           </div>
         </Panel>

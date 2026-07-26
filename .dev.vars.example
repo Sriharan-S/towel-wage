@@ -1,0 +1,8 @@
+# Copy to .dev.vars for local development (.dev.vars is gitignored).
+#
+# In production this is a Worker secret, not a file:
+#   npx wrangler secret put APP_PIN
+#
+# Exactly four digits. Anything else is treated as "not configured" and the app
+# fails closed rather than serving data without a sign-in.
+APP_PIN=1234

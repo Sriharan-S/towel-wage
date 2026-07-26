@@ -156,6 +156,39 @@
 }
 
 @layer utilities {
+  /* Draws the eye to the first PIN box on load. */
+  @keyframes pin-flash {
+    0%,
+    100% {
+      border-color: var(--line-strong);
+      box-shadow: 0 0 0 0 transparent;
+    }
+    50% {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+  }
+
+  /* A wrong PIN shakes rather than only turning red. */
+  @keyframes pin-shake {
+    0%,
+    100% {
+      transform: translateX(0);
+    }
+    20% {
+      transform: translateX(-7px);
+    }
+    40% {
+      transform: translateX(7px);
+    }
+    60% {
+      transform: translateX(-4px);
+    }
+    80% {
+      transform: translateX(4px);
+    }
+  }
+
   .panel {
     background: var(--panel);
   }

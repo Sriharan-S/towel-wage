@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { HandCoins, Plus, Trash2 } from "lucide-react";
+import { Toolbar } from "@/components/Toolbar";
 import { PageBody, PageHeader } from "@/components/layout/AppShell";
 import {
   Badge,
@@ -86,12 +87,23 @@ export default function Advances() {
           )
         }
         action={
-          <>
-            <Button icon={<Plus size={13} />} onClick={() => setRecording("advance")}>
-              Give advance
-            </Button>
-            <Button onClick={() => setRecording("repayment")}>Record repayment</Button>
-          </>
+          <Toolbar
+            items={[
+              {
+                label: "Give advance",
+                icon: <Plus size={15} />,
+                variant: "primary",
+                keepVisible: true,
+                onClick: () => setRecording("advance"),
+              },
+              {
+                label: "Record repayment",
+                icon: <HandCoins size={15} />,
+                hint: "Money handed back",
+                onClick: () => setRecording("repayment"),
+              },
+            ]}
+          />
         }
       />
 

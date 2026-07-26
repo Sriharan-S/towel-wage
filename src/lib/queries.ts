@@ -117,6 +117,24 @@ export function useSetAdjustments(weekStart: ISODate) {
   });
 }
 
+/**
+ * Sign out.
+ *
+ * Clears the whole cache as well as the cookie — otherwise the next person to
+ * open the app would see the previous session's data flash up before the gate
+ * appeared.
+ */
+export function useSignOut() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: api.auth.logout,
+    onSuccess: () => {
+      client.clear();
+      client.invalidateQueries({ queryKey: ["auth", "session"] });
+    },
+  });
+}
+
 export function useAdvances(params: { workerId?: number; week?: ISODate } = {}) {
   return useQuery({
     queryKey: ["advances", params],
