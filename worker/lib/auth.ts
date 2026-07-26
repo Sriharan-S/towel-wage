@@ -51,7 +51,15 @@ export interface PinCheck {
   unconfigured: boolean;
 }
 
-/** The PIN must be exactly four digits, whatever else the environment holds. */
+/**
+ * The PIN must be exactly four digits, whatever else the environment holds.
+ *
+ * Read through a cast rather than off `Env` directly. APP_PIN is a Worker
+ * secret, so whether `wrangler types` declares it depends on a local .dev.vars
+ * file existing — true on a developer's machine, false on a CI runner. The cast
+ * makes this compile either way, and the runtime check below is what actually
+ * guards it.
+ */
 export function readConfiguredPin(env: Env): string | null {
   const pin = (env as { APP_PIN?: string }).APP_PIN?.trim();
   return pin && /^\d{4}$/.test(pin) ? pin : null;
