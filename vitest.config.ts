@@ -5,12 +5,13 @@ import path from "node:path";
 // workerd environment we don't need here. Everything under shared/ is pure.
 export default defineConfig({
   test: {
-    include: ["shared/**/*.test.ts", "worker/**/*.test.ts"],
+    include: ["shared/**/*.test.ts", "worker/**/*.test.ts", "src/**/*.test.ts"],
     environment: "node",
   },
   resolve: {
     alias: {
       "@shared": path.resolve(import.meta.dirname, "./shared"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
 });

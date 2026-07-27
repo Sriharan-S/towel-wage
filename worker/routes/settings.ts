@@ -7,6 +7,7 @@ const app = new Hono<AppEnv>();
 
 const settingsSchema = z.object({
   businessName: z.string().trim().min(1).max(80).optional(),
+  businessAddress: z.string().trim().max(300).optional(),
   timezone: z
     .string()
     .trim()
@@ -31,6 +32,8 @@ app.patch("/", async (c) => {
 
   const pairs: Array<[string, string]> = [];
   if (body.businessName !== undefined) pairs.push(["business_name", body.businessName]);
+  if (body.businessAddress !== undefined)
+    pairs.push(["business_address", body.businessAddress]);
   if (body.timezone !== undefined) pairs.push(["timezone", body.timezone]);
   if (body.roundingStep !== undefined) pairs.push(["rounding_step", String(body.roundingStep)]);
   if (body.roundingMode !== undefined) pairs.push(["rounding_mode", body.roundingMode]);

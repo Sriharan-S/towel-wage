@@ -4,6 +4,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  FileDown,
   HandCoins,
   Lock,
   LockOpen,
@@ -28,6 +29,7 @@ import {
   useToast,
 } from "@/components/ui";
 import {
+  keys,
   useBootstrap,
   useFinalizeWeek,
   useSettleWeek,
@@ -35,9 +37,13 @@ import {
   useToday,
   useWeek,
 } from "@/lib/queries";
+import { useQueryClient } from "@tanstack/react-query";
+import { api, type DashboardStats } from "@/lib/api";
+import type { SheetStats } from "@/lib/pdf/weekSheet";
 import { Toolbar } from "@/components/Toolbar";
 import { addWeeks, formatWeekRange, relativeWeekLabel, weekStartOf } from "@shared/dates";
 import { formatCount, formatINR } from "@shared/money";
+import type { WeekResult } from "@shared/types";
 
 export default function Week() {
   const params = useParams<{ weekStart: string }>();
@@ -54,6 +60,8 @@ export default function Week() {
   const signOut = () => logout.mutate();
 
   const [confirming, setConfirming] = useState<"finalize" | "reopen" | "settle" | null>(null);
+  const [buildingPdf, setBuildingPdf] = useState(false);
+  const client = useQueryClient();
 
   const roundingStep = bootstrap.data?.settings.roundingStep ?? 100;
   const roundingMode = bootstrap.data?.settings.roundingMode ?? "hold";
@@ -62,6 +70,52 @@ export default function Week() {
   const unsettled = week.data?.workers.filter((w) => !w.settlement.isNoop).length ?? 0;
 
   const goto = (date: string) => navigate(`/week/${weekStartOf(date)}`);
+
+  /**
+   * Build the PDF here in the browser rather than asking the Worker for one:
+   * every figure is already loaded, and the typeface embed is heavier than
+   * anything worth spending a request on. The first build of a session pays
+   * ~1MB to fetch the fonts; after that they are cached.
+   */
+  const downloadPdf = async () => {
+    if (!week.data || buildingPdf) return;
+
+    // A slip is a record of what was paid. Printing one from an open week would
+    // put a figure on paper that the next entry could still change.
+    if (week.data.status !== "finalized") {
+      toast("Finalize the week first — a slip records what was actually paid.", {
+        tone: "error",
+      });
+      return;
+    }
+
+    setBuildingPdf(true);
+    try {
+      const [{ downloadWeekSheet }, stats] = await Promise.all([
+        import("@/lib/pdf"),
+        // Fetched only when a sheet is built, so the wage screen does not carry
+        // the dashboard's query on every visit.
+        client
+          .fetchQuery({ queryKey: keys.stats(12), queryFn: () => api.stats.summary(12) })
+          .catch(() => null),
+      ]);
+
+      await downloadWeekSheet({
+        week: week.data,
+        businessName,
+        businessAddress: bootstrap.data?.settings.businessAddress,
+        workerOrder: (bootstrap.data?.workers ?? []).map((w) => w.id),
+        stats: stats ? toSheetStats(stats, week.data) : undefined,
+      });
+      toast("Wage slip saved.", { tone: "success" });
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not build the PDF.", {
+        tone: "error",
+      });
+    } finally {
+      setBuildingPdf(false);
+    }
+  };
 
   const shareSummary = async () => {
     if (!week.data) return;
@@ -127,6 +181,16 @@ export default function Week() {
                 icon: <PencilLine size={15} />,
                 hint: "Daily entry, from the Sunday",
                 onClick: () => navigate(`/entry/${weekStart}`),
+              },
+              {
+                label: "Download wage slip",
+                icon: <FileDown size={15} />,
+                hint: isFinalized
+                  ? "Cover, summary, then two workers a page"
+                  : "Finalize the week first",
+                loading: buildingPdf,
+                disabled: !isFinalized,
+                onClick: downloadPdf,
               },
               {
                 label: "Print payout sheet",
@@ -407,6 +471,43 @@ export default function Week() {
       />
     </>
   );
+}
+
+/**
+ * Reduce the dashboard payload to the figures worth printing.
+ *
+ * The per-type totals are taken from the printed week specifically, not from
+ * the whole twelve-week window the dashboard charts use — a slip for one week
+ * that quoted a quarter's output would be quietly wrong.
+ */
+function toSheetStats(stats: DashboardStats, week: WeekResult): SheetStats {
+  const thisWeek = stats.weeks.find((w) => w.weekStart === week.weekStart);
+  const previous = stats.weeks[stats.weeks.indexOf(thisWeek ?? stats.weeks[0]) - 1];
+
+  return {
+    lastWeekWage: previous?.wage ?? 0,
+    lastWeekQuantity: previous?.quantity ?? 0,
+    byType: stats.workTypes
+      .map((type) => ({
+        name: type.name,
+        color: type.color,
+        quantity: thisWeek?.byWorkType[type.id]?.quantity ?? 0,
+        wage: thisWeek?.byWorkType[type.id]?.wage ?? 0,
+      }))
+      .filter((type) => type.wage > 0 || type.quantity > 0)
+      .sort((a, b) => b.wage - a.wage),
+    balances: week.workers
+      .map((worker) => ({
+        workerName: worker.workerName,
+        creditOutstanding: worker.closingBalance.creditOutstanding,
+        debitOutstanding: worker.closingBalance.debitOutstanding,
+        advanceOutstanding: worker.closingBalance.advanceOutstanding,
+      }))
+      .filter(
+        (b) =>
+          b.creditOutstanding > 0 || b.debitOutstanding > 0 || b.advanceOutstanding > 0,
+      ),
+  };
 }
 
 function SummaryRow({ label, value }: { label: string; value: string }) {

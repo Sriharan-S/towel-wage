@@ -175,6 +175,7 @@ export const toWeekAdjustment = (r: WeekAdjustmentRow): WeekAdjustmentRecord => 
 
 export const DEFAULT_SETTINGS: Settings = {
   businessName: "Towel Wage",
+  businessAddress: "",
   timezone: DEFAULT_TIMEZONE,
   roundingStep: 100,
   roundingMode: "hold",
@@ -187,6 +188,7 @@ export function toSettings(rows: Array<{ key: string; value: string }>): Setting
   const mode = map.get("rounding_mode");
   return {
     businessName: map.get("business_name") ?? DEFAULT_SETTINGS.businessName,
+    businessAddress: map.get("business_address") ?? DEFAULT_SETTINGS.businessAddress,
     timezone: map.get("timezone") ?? DEFAULT_SETTINGS.timezone,
     roundingStep: Number.isFinite(step) && step > 0 ? step : DEFAULT_SETTINGS.roundingStep,
     roundingMode: ROUNDING_MODES.includes(mode as RoundingMode)

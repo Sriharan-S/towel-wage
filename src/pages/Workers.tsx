@@ -1,7 +1,16 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronRight, EyeOff, Settings2, Trash2, UserPlus, Users } from "lucide-react";
+import {
+  ArrowUpDown,
+  ChevronRight,
+  EyeOff,
+  Settings2,
+  Trash2,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import { PageBody, PageHeader } from "@/components/layout/AppShell";
+import { SortableList } from "@/components/SortableList";
 import {
   Badge,
   Button,
@@ -22,6 +31,7 @@ import {
   useBootstrap,
   useCreateWorker,
   useDeleteWorker,
+  useReorderWorkers,
   useSetRates,
   useUpdateWorker,
 } from "@/lib/queries";
@@ -36,19 +46,48 @@ export default function Workers() {
   const createWorker = useCreateWorker();
   const updateWorker = useUpdateWorker();
   const deleteWorker = useDeleteWorker();
+  const reorderWorkers = useReorderWorkers();
   const { toast } = useToast();
 
   const [editing, setEditing] = useState<Worker | "new" | null>(null);
   const [assigning, setAssigning] = useState<Worker | null>(null);
   const [deleting, setDeleting] = useState<Worker | null>(null);
   const [showInactive, setShowInactive] = useState(false);
+  const [reordering, setReordering] = useState(false);
+  /**
+   * The order being edited, held locally so a drag lands instantly and the
+   * server is told once, when the user is done — not on every nudge.
+   */
+  const [draftOrder, setDraftOrder] = useState<number[] | null>(null);
 
   const workers = bootstrap.data?.workers ?? [];
-  const visible = workers.filter((w) => showInactive || w.isActive);
+  const ordered = useMemo(() => {
+    if (!draftOrder) return workers;
+    const rank = new Map(draftOrder.map((id, index) => [id, index]));
+    return [...workers].sort(
+      (a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity),
+    );
+  }, [workers, draftOrder]);
+
+  // Reordering always lists everyone, active or not: an order built from a
+  // filtered list would quietly push the hidden workers to the end.
+  const visible = reordering
+    ? ordered
+    : ordered.filter((w) => showInactive || w.isActive);
   const inactiveCount = workers.filter((w) => !w.isActive).length;
 
   const rateCount = (workerId: number) =>
     (bootstrap.data?.rates ?? []).filter((r) => r.workerId === workerId && r.isActive).length;
+
+  /** Write the order once, on the way out. Nothing to write if nothing moved. */
+  const saveOrder = async () => {
+    if (draftOrder) {
+      await reorderWorkers.mutateAsync(draftOrder);
+      toast("Worker order saved.", { tone: "success" });
+    }
+    setDraftOrder(null);
+    setReordering(false);
+  };
 
   if (bootstrap.isLoading) return <Spinner label="Loading workers" />;
 
@@ -56,16 +95,43 @@ export default function Workers() {
     <>
       <PageHeader
         title="Workers"
-        meta={`${workers.filter((w) => w.isActive).length} active`}
+        meta={
+          reordering
+            ? "Drag, or use the arrows"
+            : `${workers.filter((w) => w.isActive).length} active`
+        }
         action={
-          <Button
-            size="sm"
-            variant="primary"
-            icon={<UserPlus size={15} />}
-            onClick={() => setEditing("new")}
-          >
-            Add
-          </Button>
+          reordering ? (
+            <Button
+              size="sm"
+              variant="primary"
+              loading={reorderWorkers.isPending}
+              onClick={saveOrder}
+            >
+              Done
+            </Button>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              {workers.length > 1 && (
+                <Button
+                  size="sm"
+                  icon={<ArrowUpDown size={15} />}
+                  onClick={() => setReordering(true)}
+                  aria-label="Reorder workers"
+                >
+                  <span className="hidden sm:inline">Reorder</span>
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="primary"
+                icon={<UserPlus size={15} />}
+                onClick={() => setEditing("new")}
+              >
+                Add
+              </Button>
+            </div>
+          )
         }
       />
 
@@ -83,6 +149,35 @@ export default function Workers() {
               }
             />
           </Panel>
+        ) : reordering ? (
+          <>
+            <p className="px-1 text-sm ink-2">
+              This order is used everywhere — daily entry, the wage screen and the
+              printed sheet — so put the workers in whatever order you go through
+              them on the floor.
+            </p>
+            <SortableList
+              items={visible}
+              getId={(worker) => worker.id}
+              onReorder={setDraftOrder}
+            >
+              {(worker, index) => (
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="w-5 shrink-0 text-sm tabular-nums ink-3">
+                    {index + 1}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{worker.name}</span>
+                    {!worker.isActive && (
+                      <span className="mt-0.5 block">
+                        <Badge>Inactive</Badge>
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
+            </SortableList>
+          </>
         ) : (
           visible.map((worker) => (
             <Panel key={worker.id} className="flex items-center gap-2 p-3">
@@ -112,7 +207,7 @@ export default function Workers() {
           ))
         )}
 
-        {inactiveCount > 0 && (
+        {inactiveCount > 0 && !reordering && (
           <Button className="w-full" onClick={() => setShowInactive((v) => !v)}>
             <EyeOff size={15} />
             {showInactive ? "Hide" : "Show"} {inactiveCount} inactive

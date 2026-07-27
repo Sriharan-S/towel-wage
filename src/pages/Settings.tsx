@@ -53,6 +53,7 @@ export default function Settings() {
   const [restoring, setRestoring] = useState(false);
 
   const [businessName, setBusinessName] = useState<string | null>(null);
+  const [businessAddress, setBusinessAddress] = useState<string | null>(null);
 
   if (!bootstrap.data) return <Spinner label="Loading settings" />;
   const { settings } = bootstrap.data;
@@ -127,6 +128,25 @@ export default function Settings() {
                 onBlur={() => {
                   if (businessName !== null && businessName !== settings.businessName) {
                     save({ businessName: businessName.trim() || "Towel Wage" });
+                  }
+                }}
+              />
+            </Field>
+
+            <Field
+              label="Address"
+              hint="Printed on the wage slip cover page."
+            >
+              <Input
+                value={businessAddress ?? settings.businessAddress}
+                placeholder="Street, town, district, state - PIN"
+                onChange={(e) => setBusinessAddress(e.target.value)}
+                onBlur={() => {
+                  if (
+                    businessAddress !== null &&
+                    businessAddress !== settings.businessAddress
+                  ) {
+                    save({ businessAddress: businessAddress.trim() });
                   }
                 }}
               />

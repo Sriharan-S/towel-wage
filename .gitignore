@@ -12,3 +12,6 @@ dist
 # the repo and never runs the generator, so it has to be committed. It holds
 # only type declarations — no secrets. Regenerate with `npm run cf-typegen`
 # after changing wrangler.jsonc.
+
+# Sample PDF written by src/lib/pdf/sample.test.ts for eyeballing the layout.
+build

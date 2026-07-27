@@ -299,6 +299,8 @@ export interface Settlement {
 
 export interface Settings {
   businessName: string;
+  /** Printed on the wage slip cover. */
+  businessAddress: string;
   timezone: string;
   roundingStep: number;
   roundingMode: RoundingMode;

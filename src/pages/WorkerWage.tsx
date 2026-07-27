@@ -616,7 +616,35 @@ export default function WorkerWage() {
             />
           )}
 
-          {/* Adjustments */}
+          {/* Carried forward */}
+          <Section title="Carried into next week">
+            <div className="space-y-1 px-3 py-2.5 text-xs">
+              <BalanceLine
+                label={`${worker.workerName} owes you (advance)`}
+                value={worker.closingBalance.advanceOutstanding}
+              />
+              <BalanceLine
+                label={`${worker.workerName} owes you (credit)`}
+                value={worker.closingBalance.creditOutstanding}
+              />
+              <BalanceLine
+                label={`You owe ${worker.workerName}`}
+                value={worker.closingBalance.debitOutstanding}
+                positive
+              />
+              {worker.closingBalance.advanceOutstanding === 0 &&
+                worker.closingBalance.creditOutstanding === 0 &&
+                worker.closingBalance.debitOutstanding === 0 && (
+                  <p className="ink-3">All square — nothing carries forward.</p>
+                )}
+            </div>
+          </Section>
+
+          {/*
+            Adjustments last. Everything above states what happened; this is the
+            one block that changes it, and it reads better as the closing move
+            than as an interruption between the figures and their consequences.
+          */}
           <Section title="Adjustments">
             <div className="grid grid-cols-2 gap-3 p-3 sm:grid-cols-3">
               {FIELDS.map((field) => (
@@ -679,30 +707,6 @@ export default function WorkerWage() {
                 </Button>
               </div>
             )}
-          </Section>
-
-          {/* Carried forward */}
-          <Section title="Carried into next week">
-            <div className="space-y-1 px-3 py-2.5 text-xs">
-              <BalanceLine
-                label={`${worker.workerName} owes you (advance)`}
-                value={worker.closingBalance.advanceOutstanding}
-              />
-              <BalanceLine
-                label={`${worker.workerName} owes you (credit)`}
-                value={worker.closingBalance.creditOutstanding}
-              />
-              <BalanceLine
-                label={`You owe ${worker.workerName}`}
-                value={worker.closingBalance.debitOutstanding}
-                positive
-              />
-              {worker.closingBalance.advanceOutstanding === 0 &&
-                worker.closingBalance.creditOutstanding === 0 &&
-                worker.closingBalance.debitOutstanding === 0 && (
-                  <p className="ink-3">All square — nothing carries forward.</p>
-                )}
-            </div>
           </Section>
 
           {worker.lineItems.some((i) => i.rateVaried) && (
