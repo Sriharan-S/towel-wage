@@ -47,6 +47,7 @@ import {
   weekEndOf,
   weekStartOf,
 } from "@shared/dates";
+import { isEmployedOn } from "@shared/calc";
 import { formatCount, formatINR, parseCountInput, parseRupeeInput } from "@shared/money";
 import type { WorkKind, Worker, WorkType, WorkerRate } from "@shared/types";
 
@@ -89,7 +90,12 @@ export default function DailyEntry() {
     if (!bootstrap.data) return [];
     const typeById = new Map(bootstrap.data.workTypes.map((t) => [t.id, t]));
     return bootstrap.data.workers
-      .filter((w) => w.isActive)
+      // Anyone with figures saved that day stays, so they can still be corrected.
+      .filter(
+        (w) =>
+          w.isActive &&
+          (isEmployedOn(w, date) || (entries.data ?? []).some((e) => e.workerId === w.id)),
+      )
       .map((worker) => ({
         worker,
         lines: bootstrap.data.rates
@@ -98,7 +104,7 @@ export default function DailyEntry() {
           .filter((l): l is Line => Boolean(l.workType?.isActive)),
       }))
       .filter((g) => g.lines.length > 0);
-  }, [bootstrap.data]);
+  }, [bootstrap.data, date, entries.data]);
 
   /** Today's saved figures, grouped by worker. */
   const savedByWorker = useMemo(() => {

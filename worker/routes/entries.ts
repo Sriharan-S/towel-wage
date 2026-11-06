@@ -164,12 +164,20 @@ app.post("/copy", async (c) => {
   await assertWeekOpen(c.env.DB, targetWeek);
   await ensureWeek(c.env.DB, targetWeek);
 
+  // Nobody is copied onto a day outside their join and end dates.
   const source = await c.env.DB.prepare(
-    body.workerId
-      ? "SELECT * FROM entries WHERE entry_date = ? AND worker_id = ?"
-      : "SELECT * FROM entries WHERE entry_date = ?",
+    `SELECT e.* FROM entries e JOIN workers w ON w.id = e.worker_id
+     WHERE e.entry_date = ?
+       AND (w.join_date IS NULL OR w.join_date <= ?)
+       AND (w.end_date IS NULL OR w.end_date >= ?)
+       ${body.workerId ? "AND e.worker_id = ?" : ""}`,
   )
-    .bind(...(body.workerId ? [body.from, body.workerId] : [body.from]))
+    .bind(
+      body.from,
+      body.to,
+      body.to,
+      ...(body.workerId ? [body.workerId] : []),
+    )
     .all<EntryRow>();
 
   if (!source.results.length) {

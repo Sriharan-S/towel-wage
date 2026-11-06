@@ -52,6 +52,10 @@ export interface Worker {
   name: string;
   phone: string | null;
   notes: string | null;
+  /** first day of work; null when never set, which hides them from no past week */
+  joinDate: ISODate | null;
+  /** last day of work; null while they are still working */
+  endDate: ISODate | null;
   isActive: boolean;
   sortOrder: number;
 }

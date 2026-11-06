@@ -78,6 +78,14 @@ export function useWorkerStats(workerId: number, weeks = 12) {
   });
 }
 
+export function useWorkerEarnings(workerId: number, from: ISODate, to: ISODate) {
+  return useQuery({
+    queryKey: ["stats", "earnings", workerId, from, to],
+    queryFn: () => api.stats.earnings(workerId, from, to),
+    enabled: Boolean(from && to && from <= to),
+  });
+}
+
 /**
  * Saving a day also changes that day's week total and the dashboard, so both
  * are invalidated alongside the day itself.

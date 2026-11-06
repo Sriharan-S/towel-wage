@@ -33,9 +33,11 @@ import {
   useDeleteWorker,
   useReorderWorkers,
   useSetRates,
+  useToday,
   useUpdateWorker,
 } from "@/lib/queries";
 import type { RateInput } from "@/lib/api";
+import { formatFullDate } from "@shared/dates";
 import { formatINR, parseRupeeInput, toRupees } from "@shared/money";
 import { WORK_KIND_HELP } from "@shared/types";
 import type { Worker } from "@shared/types";
@@ -48,6 +50,7 @@ export default function Workers() {
   const deleteWorker = useDeleteWorker();
   const reorderWorkers = useReorderWorkers();
   const { toast } = useToast();
+  const today = useToday();
 
   const [editing, setEditing] = useState<Worker | "new" | null>(null);
   const [assigning, setAssigning] = useState<Worker | null>(null);
@@ -188,6 +191,7 @@ export default function Workers() {
                 <div className="flex items-center gap-2">
                   <span className="truncate font-semibold">{worker.name}</span>
                   {!worker.isActive && <Badge>Inactive</Badge>}
+                  {worker.endDate && worker.endDate < today && <Badge>Left</Badge>}
                 </div>
                 <p className="mt-0.5 text-sm ink-2">
                   {rateCount(worker.id) === 0
@@ -195,6 +199,14 @@ export default function Workers() {
                     : `${rateCount(worker.id)} towel ${rateCount(worker.id) === 1 ? "type" : "types"}`}
                   {worker.phone && ` · ${worker.phone}`}
                 </p>
+                {worker.joinDate && (
+                  <p className="mt-0.5 text-xs ink-3">
+                    From {formatFullDate(worker.joinDate)}
+                    {worker.endDate && worker.endDate < today
+                      ? ` to ${formatFullDate(worker.endDate)}`
+                      : " · currently working"}
+                  </p>
+                )}
               </button>
 
               <IconButton label="Assign towel types" onClick={() => setAssigning(worker)}>
@@ -276,17 +288,22 @@ function WorkerSheet({
     name: string;
     phone: string | null;
     notes: string | null;
+    joinDate: string | null;
+    endDate: string | null;
     isActive: boolean;
   }) => Promise<void>;
   onDelete: (worker: Worker) => void;
   saving: boolean;
 }) {
+  const today = useToday();
   const isNew = worker === "new";
   const existing = worker && worker !== "new" ? worker : null;
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
+  const [joinDate, setJoinDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [error, setError] = useState("");
 
@@ -298,6 +315,8 @@ function WorkerSheet({
     setName(existing?.name ?? "");
     setPhone(existing?.phone ?? "");
     setNotes(existing?.notes ?? "");
+    setJoinDate(isNew ? today : (existing?.joinDate ?? ""));
+    setEndDate(existing?.endDate ?? "");
     setIsActive(existing?.isActive ?? true);
     setError("");
   }
@@ -307,7 +326,13 @@ function WorkerSheet({
       setError("Please enter a name.");
       return;
     }
+    if (joinDate && endDate && endDate < joinDate) {
+      setError("The end date cannot be before the join date.");
+      return;
+    }
     await onSubmit({
+      joinDate: joinDate || null,
+      endDate: endDate || null,
       name: name.trim(),
       phone: phone.trim() || null,
       notes: notes.trim() || null,
@@ -348,6 +373,24 @@ function WorkerSheet({
         <Field label="Notes" hint="Optional">
           <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Join date" hint="Hidden from earlier wages and entries.">
+            <Input
+              type="date"
+              aria-label="Join date"
+              value={joinDate}
+              onChange={(e) => setJoinDate(e.target.value)}
+            />
+          </Field>
+          <Field label="End date" hint="Blank while they are still working.">
+            <Input
+              type="date"
+              aria-label="End date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
+          </Field>
+        </div>
         {existing && (
           <div className="flex items-center justify-between">
             <div>

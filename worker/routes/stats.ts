@@ -8,7 +8,8 @@ import {
   weekStartOf,
 } from "@shared/dates";
 import type { ISODate } from "@shared/dates";
-import type { AppEnv } from "../lib/http";
+import { readDate, type AppEnv } from "../lib/http";
+import { weeklyWages } from "../lib/earnings";
 import {
   loadSettings,
   toEntry,
@@ -217,6 +218,49 @@ app.get("/summary", async (c) => {
       totalDebitOutstanding: balances.reduce((s, b) => s + Math.max(0, b.debitOutstanding), 0),
       missingDays,
     },
+  });
+});
+
+/**
+ * One worker's wages over a range of dates, plus the first and last day they
+ * have any work recorded. Wages are weekly, so the range widens to whole weeks.
+ */
+app.get("/worker/:workerId/earnings", async (c) => {
+  const workerId = Number(c.req.param("workerId"));
+  const from = weekStartOf(readDate(c.req.query("from"), "from"));
+  const to = weekStartOf(readDate(c.req.query("to"), "to"));
+
+  const [{ wages }, recorded] = await Promise.all([
+    weeklyWages(c.env.DB, from, to),
+    c.env.DB.prepare(
+      "SELECT MIN(entry_date) AS first_work, MAX(entry_date) AS last_work FROM entries WHERE worker_id = ?",
+    )
+      .bind(workerId)
+      .first<{ first_work: string | null; last_work: string | null }>(),
+  ]);
+
+  const weeks = wages
+    .filter((w) => w.workerId === workerId && (w.wage !== 0 || w.paid !== 0))
+    .sort((a, b) => b.weekStart.localeCompare(a.weekStart))
+    .map(({ weekStart, wage, paid, oldRecord }) => ({
+      weekStart,
+      weekEnd: weekEndOf(weekStart),
+      wage,
+      paid,
+      oldRecord,
+    }));
+
+  return c.json({
+    from,
+    to: weekEndOf(to),
+    weeks,
+    totals: {
+      weeks: weeks.length,
+      wage: weeks.reduce((sum, w) => sum + w.wage, 0),
+      paid: weeks.reduce((sum, w) => sum + w.paid, 0),
+    },
+    firstWork: recorded?.first_work ?? null,
+    lastWork: recorded?.last_work ?? null,
   });
 });
 

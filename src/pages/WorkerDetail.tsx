@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Area,
@@ -10,13 +11,24 @@ import {
 } from "recharts";
 import { ArrowLeft, Settings2 } from "lucide-react";
 import { PageBody, PageHeader } from "@/components/layout/AppShell";
-import { Badge, Button, Panel, EmptyState, ErrorState, Spinner } from "@/components/ui";
+import {
+  Badge,
+  Button,
+  EmptyState,
+  ErrorState,
+  Field,
+  Input,
+  Money,
+  Panel,
+  Spinner,
+} from "@/components/ui";
 import { ChartCard, DataTable, Legend, TooltipBox } from "@/components/charts/ChartCard";
 import { StatTile } from "@/components/charts/StatTile";
 import { useChartTheme } from "@/lib/palette";
-import { useBootstrap, useWorkerStats } from "@/lib/queries";
+import { useBootstrap, useToday, useWorkerEarnings, useWorkerStats } from "@/lib/queries";
 import { formatCompactINR, formatCount, formatINR } from "@shared/money";
-import { formatDayMonth, formatWeekRange } from "@shared/dates";
+import { addWeeks, formatDayMonth, formatFullDate, formatWeekRange } from "@shared/dates";
+import type { Worker } from "@shared/types";
 
 export default function WorkerDetail() {
   const { workerId } = useParams<{ workerId: string }>();
@@ -111,6 +123,8 @@ export default function WorkerDetail() {
             daily entry screen.
           </div>
         )}
+
+        <WorkingPeriod worker={worker} />
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatTile
@@ -301,5 +315,127 @@ export default function WorkerDetail() {
         </Panel>
       </PageBody>
     </>
+  );
+}
+
+/** When this worker started and stopped, and what they earned between two dates. */
+function WorkingPeriod({ worker }: { worker: Worker }) {
+  const navigate = useNavigate();
+  const today = useToday();
+  const hasLeft = worker.endDate !== null && worker.endDate < today;
+
+  const [from, setFrom] = useState(worker.joinDate ?? addWeeks(today, -52));
+  const [to, setTo] = useState(hasLeft ? worker.endDate! : today);
+
+  const earnings = useWorkerEarnings(worker.id, from, to);
+  const data = earnings.data;
+  const rangeValid = Boolean(from && to && from <= to);
+
+  return (
+    <Panel>
+      <div className="grid grid-cols-2 gap-3 border-b p-4" style={{ borderColor: "var(--line)" }}>
+        <div>
+          <p className="text-xs ink-2">Started</p>
+          <p className="mt-0.5 text-sm font-semibold">
+            {worker.joinDate ? formatFullDate(worker.joinDate) : "Join date not set"}
+          </p>
+          {!worker.joinDate && data?.firstWork && (
+            <p className="mt-0.5 text-xs ink-3">
+              First recorded work {formatFullDate(data.firstWork)}
+            </p>
+          )}
+        </div>
+        <div>
+          <p className="text-xs ink-2">Ended</p>
+          <p className="mt-0.5 text-sm font-semibold">
+            {hasLeft ? formatFullDate(worker.endDate!) : "Currently working"}
+          </p>
+          {!hasLeft && worker.endDate && (
+            <p className="mt-0.5 text-xs ink-3">Until {formatFullDate(worker.endDate)}</p>
+          )}
+        </div>
+      </div>
+
+      <div className="p-4">
+        <h2 className="text-sm font-semibold">Wages earned</h2>
+        <div className="mt-2 grid grid-cols-2 gap-3">
+          <Field label="From">
+            <Input
+              type="date"
+              aria-label="From"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+            />
+          </Field>
+          <Field label="To">
+            <Input
+              type="date"
+              aria-label="To"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+            />
+          </Field>
+        </div>
+        <p className="mt-1.5 text-xs ink-3">
+          Wages are worked out by the week, so any week these dates touch is counted in full.
+        </p>
+      </div>
+
+      {!rangeValid ? (
+        <p className="border-t px-4 py-3 text-sm ink-2" style={{ borderColor: "var(--line)" }}>
+          Choose a From date on or before the To date.
+        </p>
+      ) : earnings.isLoading ? (
+        <Spinner label="Adding up the wages" />
+      ) : earnings.error ? (
+        <ErrorState error={earnings.error} onRetry={earnings.refetch} />
+      ) : data && data.weeks.length === 0 ? (
+        <p className="border-t px-4 py-3 text-sm ink-2" style={{ borderColor: "var(--line)" }}>
+          No wages in these dates.
+        </p>
+      ) : (
+        data && (
+          <>
+            <div
+              className="max-h-72 overflow-y-auto border-t"
+              style={{ borderColor: "var(--line)" }}
+            >
+              {data.weeks.map((week) => (
+                <button
+                  key={week.weekStart}
+                  onClick={() => navigate(`/week/${week.weekStart}/${worker.id}`)}
+                  className="flex w-full items-center gap-3 border-b px-4 py-2 text-left last:border-b-0 hover:bg-[color:var(--panel-2)]"
+                  style={{ borderColor: "var(--line)" }}
+                >
+                  <span className="min-w-0 flex-1 truncate text-sm">
+                    {formatWeekRange(week.weekStart)}
+                  </span>
+                  {week.oldRecord && <Badge>Old record</Badge>}
+                  <span className="shrink-0 text-right">
+                    <Money className="block text-sm font-medium">{formatINR(week.wage)}</Money>
+                    {week.paid !== week.wage && (
+                      <span className="tnum block text-[11px] ink-3">
+                        paid {formatINR(week.paid)}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div
+              className="flex items-baseline justify-between border-t px-4 py-2.5"
+              style={{ background: "var(--panel-2)", borderColor: "var(--line-strong)" }}
+            >
+              <span className="text-xs font-semibold">
+                Total earned · {data.totals.weeks} {data.totals.weeks === 1 ? "week" : "weeks"}
+              </span>
+              <Money className="text-lg font-semibold" tone="positive">
+                {formatINR(data.totals.wage)}
+              </Money>
+            </div>
+          </>
+        )
+      )}
+    </Panel>
   );
 }

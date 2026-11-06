@@ -194,6 +194,31 @@ export async function computeWeek(
     )
       continue;
 
+    /*
+      Outside their join and end dates a worker is left off, unless the week
+      involves money: hiding recorded work or a balance still owed would make
+      the figures wrong, which is worse than an extra name.
+    */
+    const startedBy = !worker.joinDate || worker.joinDate <= weekEndOf(weekStart);
+    const stillThere = !worker.endDate || worker.endDate >= weekStart;
+    if (!startedBy || !stillThere) {
+      const balance = openingBalances.get(worker.id) ?? ZERO_BALANCE;
+      const concernsMoney =
+        workerEntries.length > 0 ||
+        workerAdvances.length > 0 ||
+        adjustmentRow?.manualWage != null ||
+        Boolean(adjustmentRow?.wage) ||
+        Boolean(adjustmentRow?.credit) ||
+        Boolean(adjustmentRow?.deduct) ||
+        Boolean(adjustmentRow?.debit) ||
+        Boolean(adjustmentRow?.addback) ||
+        Boolean(adjustmentRow?.advanceRecovered) ||
+        balance.creditOutstanding !== 0 ||
+        balance.debitOutstanding !== 0 ||
+        balance.advanceOutstanding !== 0;
+      if (!concernsMoney) continue;
+    }
+
     const calculatedItems = buildLineItems({
       weekStart,
       entries: workerEntries,

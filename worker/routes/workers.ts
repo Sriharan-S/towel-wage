@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import {
+  isoDateSchema,
   nameSchema,
   nonNegativePaiseSchema,
   readId,
@@ -23,8 +24,16 @@ const workerSchema = z.object({
   name: nameSchema,
   phone: z.string().trim().max(24).nullish(),
   notes: z.string().trim().max(500).nullish(),
+  joinDate: isoDateSchema.nullish(),
+  endDate: isoDateSchema.nullish(),
   isActive: z.boolean().default(true),
 });
+
+function assertDatesInOrder(joinDate?: string | null, endDate?: string | null) {
+  if (joinDate && endDate && endDate < joinDate) {
+    throw new HTTPException(400, { message: "The end date cannot be before the join date." });
+  }
+}
 
 /** One work type assigned to this worker, with the rate they are paid for it. */
 const rateSchema = z.object({
@@ -46,13 +55,22 @@ app.get("/", async (c) => {
 
 app.post("/", async (c) => {
   const body = await readJson(c, workerSchema);
+  assertDatesInOrder(body.joinDate, body.endDate);
   const sortOrder = await nextSortOrder(c.env.DB, "workers");
 
   const row = await c.env.DB.prepare(
-    `INSERT INTO workers (name, phone, notes, is_active, sort_order)
-     VALUES (?, ?, ?, ?, ?) RETURNING *`,
+    `INSERT INTO workers (name, phone, notes, join_date, end_date, is_active, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`,
   )
-    .bind(body.name, body.phone ?? null, body.notes ?? null, body.isActive ? 1 : 0, sortOrder)
+    .bind(
+      body.name,
+      body.phone ?? null,
+      body.notes ?? null,
+      body.joinDate ?? null,
+      body.endDate ?? null,
+      body.isActive ? 1 : 0,
+      sortOrder,
+    )
     .first<WorkerRow>();
 
   return c.json(toWorker(row!), 201);
@@ -65,10 +83,22 @@ app.patch("/:id", async (c) => {
     workerSchema.partial().extend({ sortOrder: z.number().int().optional() }),
   );
 
+  if (body.joinDate !== undefined || body.endDate !== undefined) {
+    const current = await c.env.DB.prepare("SELECT join_date, end_date FROM workers WHERE id = ?")
+      .bind(id)
+      .first<{ join_date: string | null; end_date: string | null }>();
+    assertDatesInOrder(
+      body.joinDate === undefined ? current?.join_date : body.joinDate,
+      body.endDate === undefined ? current?.end_date : body.endDate,
+    );
+  }
+
   const columns: Record<string, unknown> = {
     name: body.name,
     phone: body.phone,
     notes: body.notes,
+    join_date: body.joinDate,
+    end_date: body.endDate,
     is_active: body.isActive === undefined ? undefined : body.isActive ? 1 : 0,
     sort_order: body.sortOrder,
   };

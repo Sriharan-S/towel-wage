@@ -147,6 +147,21 @@ export interface WorkerStats {
   }>;
 }
 
+export interface WorkerEarnings {
+  from: ISODate;
+  to: ISODate;
+  weeks: Array<{
+    weekStart: ISODate;
+    weekEnd: ISODate;
+    wage: number;
+    paid: number;
+    oldRecord: boolean;
+  }>;
+  totals: { weeks: number; wage: number; paid: number };
+  firstWork: ISODate | null;
+  lastWork: ISODate | null;
+}
+
 export interface DayEntryInput {
   workerId: number;
   workTypeId: number;
@@ -236,7 +251,13 @@ export const api = {
 
   workers: {
     list: () => request<Worker[]>("/workers"),
-    create: (body: { name: string; phone?: string | null; notes?: string | null }) =>
+    create: (body: {
+      name: string;
+      phone?: string | null;
+      notes?: string | null;
+      joinDate?: ISODate | null;
+      endDate?: ISODate | null;
+    }) =>
       send<Worker>("POST", "/workers", body),
     update: (id: number, body: Partial<Worker>) =>
       send<Worker>("PATCH", `/workers/${id}`, body),
@@ -316,6 +337,8 @@ export const api = {
 
   stats: {
     summary: (weeks = 12) => request<DashboardStats>(`/stats/summary?weeks=${weeks}`),
+    earnings: (workerId: number, from: ISODate, to: ISODate) =>
+      request<WorkerEarnings>(`/stats/worker/${workerId}/earnings?from=${from}&to=${to}`),
     worker: (workerId: number, weeks = 12) =>
       request<WorkerStats>(`/stats/worker/${workerId}?weeks=${weeks}`),
   },

@@ -512,6 +512,14 @@ export function carriedAdvance(
   return Math.max(0, lowest);
 }
 
+/** Whether a worker was employed on this date, by their join and end dates. */
+export function isEmployedOn(
+  worker: { joinDate: string | null; endDate: string | null },
+  date: string,
+): boolean {
+  return (!worker.joinDate || worker.joinDate <= date) && (!worker.endDate || worker.endDate >= date);
+}
+
 /** A bonus on what was earned, to the nearest whole rupee. */
 export function bonusAmount(earned: number, percent: number): number {
   return Math.round((earned * percent) / 10_000) * 100;

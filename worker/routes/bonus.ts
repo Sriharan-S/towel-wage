@@ -1,23 +1,12 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { bonusAmount, buildLineItems, sumLineItemWages } from "@shared/calc";
+import { bonusAmount } from "@shared/calc";
 import { weekStartOf } from "@shared/dates";
 import type { ISODate } from "@shared/dates";
 import type { BonusLine, BonusRun } from "@shared/types";
 import { isoDateSchema, readDate, readJson, type AppEnv } from "../lib/http";
-import {
-  toEntry,
-  toWeekAdjustment,
-  toWorkType,
-  toWorker,
-  toWorkerRate,
-  type EntryRow,
-  type WeekAdjustmentRow,
-  type WorkTypeRow,
-  type WorkerRateRow,
-  type WorkerRow,
-} from "../lib/db";
+import { weeklyWages } from "../lib/earnings";
 
 const app = new Hono<AppEnv>();
 
@@ -46,13 +35,7 @@ interface LineRow {
   included: number;
 }
 
-/**
- * Every worker's wages across a range of weeks, per worker.
- *
- * Follows computeWeek's order of precedence for a wage — old record, then the
- * figure frozen at finalize, then the live calculation — without running it once
- * per week, which would cost a year's worth of database round trips.
- */
+/** Every worker's total earnings across a range of weeks. */
 async function earningsInRange(
   db: D1Database,
   startWeek: ISODate,
@@ -60,70 +43,11 @@ async function earningsInRange(
   percent: number,
   excluded: number[],
 ): Promise<BonusLine[]> {
-  const [workerRes, typeRes, rateRes, entryRes, adjRes, weekRes] = await db.batch([
-    db.prepare("SELECT * FROM workers ORDER BY sort_order, name"),
-    db.prepare("SELECT * FROM work_types"),
-    db.prepare("SELECT * FROM worker_rates ORDER BY sort_order, id"),
-    db
-      .prepare("SELECT * FROM entries WHERE week_start >= ? AND week_start <= ?")
-      .bind(startWeek, endWeek),
-    db
-      .prepare("SELECT * FROM week_adjustments WHERE week_start >= ? AND week_start <= ?")
-      .bind(startWeek, endWeek),
-    db
-      .prepare(
-        "SELECT week_start FROM weeks WHERE status = 'finalized' AND week_start >= ? AND week_start <= ?",
-      )
-      .bind(startWeek, endWeek),
-  ]);
-
-  const workers = (workerRes.results as unknown as WorkerRow[]).map(toWorker);
-  const workTypes = new Map(
-    (typeRes.results as unknown as WorkTypeRow[]).map(toWorkType).map((t) => [t.id, t] as const),
-  );
-  const rates = (rateRes.results as unknown as WorkerRateRow[]).map(toWorkerRate);
-  const entries = (entryRes.results as unknown as EntryRow[]).map(toEntry);
-  const adjustments = (adjRes.results as unknown as WeekAdjustmentRow[]).map(toWeekAdjustment);
-  const finalized = new Set(
-    (weekRes.results as unknown as Array<{ week_start: string }>).map((r) => r.week_start),
-  );
-
-  const key = (weekStart: string, workerId: number) => `${weekStart}|${workerId}`;
-
-  const adjustmentFor = new Map(adjustments.map((a) => [key(a.weekStart, a.workerId), a] as const));
-  const entriesFor = new Map<string, typeof entries>();
-  for (const entry of entries) {
-    const k = key(entry.weekStart, entry.workerId);
-    const list = entriesFor.get(k);
-    if (list) list.push(entry);
-    else entriesFor.set(k, [entry]);
-  }
+  const { workers, wages } = await weeklyWages(db, startWeek, endWeek);
 
   const earned = new Map<number, { earned: number; weeksWorked: number }>();
-  const weekKeys = new Set([...entriesFor.keys(), ...adjustmentFor.keys()]);
-  for (const k of weekKeys) {
-    const [weekStart, id] = k.split("|");
-    const workerId = Number(id);
-    const adjustment = adjustmentFor.get(k);
-
-    let wage: number;
-    if (adjustment?.manualWage != null) {
-      wage = adjustment.manualWage;
-    } else if (finalized.has(weekStart) && adjustment?.wage != null) {
-      wage = adjustment.wage;
-    } else {
-      wage = sumLineItemWages(
-        buildLineItems({
-          weekStart,
-          entries: entriesFor.get(k) ?? [],
-          rates: rates.filter((r) => r.workerId === workerId),
-          workTypes,
-          includeEmpty: false,
-        }),
-      );
-    }
+  for (const { workerId, wage } of wages) {
     if (wage <= 0) continue;
-
     const total = earned.get(workerId) ?? { earned: 0, weeksWorked: 0 };
     total.earned += wage;
     total.weeksWorked += 1;

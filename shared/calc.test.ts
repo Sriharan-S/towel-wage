@@ -1,4 +1,4 @@
-import { bonusAmount, carriedAdvance } from "./calc";
+import { bonusAmount, carriedAdvance, isEmployedOn } from "./calc";
 import { describe, expect, it } from "vitest";
 import {
   advanceDelta,
@@ -1039,5 +1039,23 @@ describe("bonusAmount", () => {
   it("rounds to the nearest rupee", () => {
     expect(bonusAmount(230_200, 8)).toBe(18_400); // 184.16
     expect(bonusAmount(230_700, 8)).toBe(18_500); // 184.56
+  });
+});
+
+describe("isEmployedOn", () => {
+  const worker = { joinDate: "2026-08-05", endDate: "2026-09-30" };
+
+  it("includes the first and last day", () => {
+    expect(isEmployedOn(worker, "2026-08-05")).toBe(true);
+    expect(isEmployedOn(worker, "2026-09-30")).toBe(true);
+  });
+
+  it("excludes days outside the dates", () => {
+    expect(isEmployedOn(worker, "2026-08-04")).toBe(false);
+    expect(isEmployedOn(worker, "2026-10-01")).toBe(false);
+  });
+
+  it("treats a missing date as open-ended", () => {
+    expect(isEmployedOn({ joinDate: null, endDate: null }, "2020-01-01")).toBe(true);
   });
 });

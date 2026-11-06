@@ -39,6 +39,8 @@ export interface WorkerRow {
   name: string;
   phone: string | null;
   notes: string | null;
+  join_date: string | null;
+  end_date: string | null;
   is_active: number;
   sort_order: number;
 }
@@ -116,6 +118,8 @@ export const toWorker = (r: WorkerRow): Worker => ({
   name: r.name,
   phone: r.phone,
   notes: r.notes,
+  joinDate: r.join_date ?? null,
+  endDate: r.end_date ?? null,
   isActive: r.is_active === 1,
   sortOrder: r.sort_order,
 });
