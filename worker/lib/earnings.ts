@@ -30,6 +30,7 @@ export interface WeekWage {
   /** what the adjustments made of it, paise */
   paid: number;
   oldRecord: boolean;
+  markedPaid: boolean;
 }
 
 export async function weeklyWages(
@@ -105,6 +106,7 @@ export async function weeklyWages(
       wage,
       paid: netPayable(wage, adjustment ?? ZERO_ADJUSTMENTS),
       oldRecord: adjustment?.manualWage != null,
+      markedPaid: adjustment?.paidAt != null,
     });
   }
 

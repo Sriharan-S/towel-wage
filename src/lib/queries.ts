@@ -78,6 +78,41 @@ export function useWorkerStats(workerId: number, weeks = 12) {
   });
 }
 
+export function useWeekCalendar(year: number) {
+  return useQuery({
+    queryKey: ["calendar", year],
+    queryFn: () => api.weeks.calendar(year),
+    staleTime: 0,
+  });
+}
+
+/**
+ * Finalize or reset several weeks, one request each, so a failure part-way says
+ * exactly which weeks were done. Stops nothing early: every week gets its turn.
+ */
+export function useBulkWeekAction() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ action, weeks }: { action: "finalize" | "reset"; weeks: ISODate[] }) => {
+      const failed: ISODate[] = [];
+      for (const weekStart of weeks) {
+        try {
+          if (action === "finalize") await api.weeks.finalize(weekStart);
+          else await api.weeks.reset(weekStart);
+        } catch {
+          failed.push(weekStart);
+        }
+      }
+      return { done: weeks.length - failed.length, failed };
+    },
+    onSuccess: () => {
+      for (const queryKey of [["calendar"], ["week"], ["weeks"], ["stats"], ["entries"], ["bonus"]]) {
+        client.invalidateQueries({ queryKey });
+      }
+    },
+  });
+}
+
 export function useWorkerEarnings(workerId: number, from: ISODate, to: ISODate) {
   return useQuery({
     queryKey: ["stats", "earnings", workerId, from, to],

@@ -80,6 +80,9 @@ function isManagerAllowed(method: string, path: string): boolean {
   const adminOnly = ["/api/settings", "/api/backup", "/api/bonus"];
   if (adminOnly.some((prefix) => path.startsWith(prefix))) return false;
 
+  // Wiping a whole week is the admin's call.
+  if (method === "DELETE" && path.startsWith("/api/weeks/")) return false;
+
   // Workers and towel types stay readable — the entry and wage screens cannot
   // render without them — but not editable.
   const readOnlyForManagers = ["/api/workers", "/api/work-types"];

@@ -2,6 +2,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import type { ReactNode } from "react";
 import {
   BarChart3,
+  CalendarDays,
   HandCoins,
   History,
   Layers,
@@ -38,6 +39,13 @@ function useNavItems(): NavItem[] {
       label: "Wages",
       short: "Wages",
       icon: <Wallet size={19} />,
+      primary: true,
+    },
+    {
+      to: "/calendar",
+      label: "Week calendar",
+      short: "Calendar",
+      icon: <CalendarDays size={19} />,
       primary: true,
     },
     { to: "/advances", label: "Advances", short: "Loans", icon: <HandCoins size={19} />, primary: true },

@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { addWeeks, weekEndOf, weekStartOf } from "@shared/dates";
 import { nonNegativePaiseSchema, readDate, readId, readJson, type AppEnv } from "../lib/http";
+import { weeklyWages } from "../lib/earnings";
 import { assertWeekOpen, computeWeek, ensureWeek } from "../lib/week";
 
 const app = new Hono<AppEnv>();
@@ -72,6 +73,56 @@ app.get("/", async (c) => {
       })),
     })),
   );
+});
+
+/**
+ * GET /api/weeks/calendar?year= — one line per week that has anything in it.
+ * A week belongs to the year its Saturday, the payout day, falls in.
+ */
+app.get("/calendar", async (c) => {
+  const year = Number(c.req.query("year"));
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+    throw new HTTPException(400, { message: "Invalid year." });
+  }
+
+  const startWeek = addWeeks(weekStartOf(`${year}-01-01`), -1);
+  const endWeek = weekStartOf(`${year}-12-31`);
+  const [{ wages }, finalized] = await Promise.all([
+    weeklyWages(c.env.DB, startWeek, endWeek),
+    c.env.DB.prepare(
+      "SELECT week_start FROM weeks WHERE status = 'finalized' AND week_start >= ? AND week_start <= ?",
+    )
+      .bind(startWeek, endWeek)
+      .all<{ week_start: string }>(),
+  ]);
+
+  const weeks = new Map<
+    string,
+    { weekStart: string; status: "finalized" | "paid" | "entered"; wage: number; workers: number }
+  >();
+  const line = (weekStart: string) => {
+    const existing = weeks.get(weekStart);
+    if (existing) return existing;
+    const created = {
+      weekStart,
+      status: "entered" as "finalized" | "paid" | "entered",
+      wage: 0,
+      workers: 0,
+    };
+    weeks.set(weekStart, created);
+    return created;
+  };
+
+  for (const { weekStart, wage, paid, markedPaid } of wages) {
+    if (wage === 0 && paid === 0 && !markedPaid) continue;
+    const week = line(weekStart);
+    if (markedPaid) week.status = "paid";
+    week.wage += wage;
+    week.workers += 1;
+  }
+  for (const row of finalized.results) line(row.week_start).status = "finalized";
+
+  return c.json([...weeks.values()].filter((w) => weekEndOf(w.weekStart).startsWith(`${year}-`)));
 });
 
 /** GET /api/weeks/:weekStart — the full computed payroll for one week. */
@@ -303,6 +354,24 @@ app.post("/:weekStart/reopen", async (c) => {
   ]);
 
   return c.json(await computeWeek(c.env.DB, weekStart));
+});
+
+/**
+ * Wipe a week: its entries, old records, adjustments and finalized state.
+ * Advances stay, since that money changed hands whatever happens to the wages.
+ * The caller must pass `confirm: "reset"` to mean it.
+ */
+app.delete("/:weekStart", async (c) => {
+  const weekStart = weekStartOf(readDate(c.req.param("weekStart"), "weekStart"));
+  await readJson(c, z.object({ confirm: z.literal("reset") }));
+
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM entries WHERE week_start = ?").bind(weekStart),
+    c.env.DB.prepare("DELETE FROM week_adjustments WHERE week_start = ?").bind(weekStart),
+    c.env.DB.prepare("DELETE FROM weeks WHERE week_start = ?").bind(weekStart),
+  ]);
+
+  return c.json({ reset: true, weekStart });
 });
 
 /** A worker's week-by-week history, for the worker detail view. */

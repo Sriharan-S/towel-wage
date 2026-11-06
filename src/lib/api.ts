@@ -147,6 +147,15 @@ export interface WorkerStats {
   }>;
 }
 
+/** A week with something in it. Weeks with nothing are simply absent. */
+export interface CalendarWeek {
+  weekStart: ISODate;
+  /** paid: at least one worker marked paid. entered: wages recorded, nobody paid yet. */
+  status: "finalized" | "paid" | "entered";
+  wage: number;
+  workers: number;
+}
+
 export interface WorkerEarnings {
   from: ISODate;
   to: ISODate;
@@ -318,6 +327,9 @@ export const api = {
       const qs = search.toString();
       return request<WeekSummary[]>(`/weeks${qs ? `?${qs}` : ""}`);
     },
+    calendar: (year: number) => request<CalendarWeek[]>(`/weeks/calendar?year=${year}`),
+    reset: (weekStart: ISODate) =>
+      send<{ reset: true }>("DELETE", `/weeks/${weekStart}`, { confirm: "reset" }),
     get: (weekStart: ISODate) => request<WeekResult>(`/weeks/${weekStart}`),
     setAdjustments: (weekStart: ISODate, workerId: number, body: AdjustmentInput) =>
       send<WeekResult>("PUT", `/weeks/${weekStart}/adjustments/${workerId}`, body),

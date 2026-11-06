@@ -11,6 +11,7 @@ import Settings from "./pages/Settings";
 import Advances from "./pages/Advances";
 import WorkerWage from "./pages/WorkerWage";
 import DeepavaliBonus from "./pages/DeepavaliBonus";
+import WeekCalendar from "./pages/WeekCalendar";
 import { useRole } from "./lib/role";
 
 // The charting library is a large dependency and only two screens need it.
@@ -40,6 +41,7 @@ export default function App() {
           <Route path="/entry/:date" element={<DailyEntry />} />
           <Route path="/week/:weekStart" element={<Week />} />
           <Route path="/week/:weekStart/:workerId" element={<WorkerWage />} />
+          <Route path="/calendar" element={<WeekCalendar />} />
           <Route path="/advances" element={<Advances />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route
