@@ -143,6 +143,8 @@ export interface WeekAdjustmentRecord extends Adjustments {
   /** frozen on finalize, null while the week is open */
   wage: number | null;
   netPayable: number | null;
+  /** the wage as typed from the notebook; null when worked out from entries */
+  manualWage: number | null;
   paidAt: string | null;
   note: string | null;
 }
@@ -213,6 +215,15 @@ export interface WorkerWeekResult {
   openingBalance: Balance;
   /** carry-forward leaving this week */
   closingBalance: Balance;
+  /** set when this week is an old record: the amount paid, typed from the notebook */
+  manualWage: number | null;
+  /** what the daily entries come to while an old record overrides them, paise */
+  ignoredWage: number;
+  /**
+   * The part of the closing advance that is never returned afterwards, as far
+   * as the records go. Differs from closingBalance once later weeks repay it.
+   */
+  carriedAdvance: number;
   /** what the app proposes for deduct / addback based on openingBalance */
   suggested: { deduct: number; addback: number };
   /** the one-tap proposal: settle the carry-forward, then round */
@@ -295,6 +306,30 @@ export interface Settlement {
   step: number;
   /** true when the proposal changes nothing — already settled and round */
   isNoop: boolean;
+}
+
+export interface BonusLine {
+  workerId: number;
+  workerName: string;
+  /** wages earned across the range, before any rounding, paise */
+  earned: number;
+  weeksWorked: number;
+  /** nearest rupee, in paise */
+  bonus: number;
+  included: boolean;
+}
+
+/** One year's Deepavali bonus. */
+export interface BonusRun {
+  year: number;
+  startWeek: ISODate;
+  endWeek: ISODate;
+  percent: number;
+  status: "draft" | "finalized";
+  finalizedAt: string | null;
+  workers: BonusLine[];
+  /** included workers only */
+  totals: { workers: number; earned: number; bonus: number };
 }
 
 export interface Settings {

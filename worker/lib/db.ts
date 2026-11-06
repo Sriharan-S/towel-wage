@@ -93,6 +93,7 @@ export interface WeekAdjustmentRow {
   advance_recovered: number;
   wage: number | null;
   net_payable: number | null;
+  manual_wage: number | null;
   paid_at: string | null;
   note: string | null;
 }
@@ -169,6 +170,7 @@ export const toWeekAdjustment = (r: WeekAdjustmentRow): WeekAdjustmentRecord => 
   advanceRecovered: r.advance_recovered ?? 0,
   wage: r.wage,
   netPayable: r.net_payable,
+  manualWage: r.manual_wage ?? null,
   paidAt: r.paid_at,
   note: r.note,
 });

@@ -10,6 +10,7 @@ import HistoryPage from "./pages/History";
 import Settings from "./pages/Settings";
 import Advances from "./pages/Advances";
 import WorkerWage from "./pages/WorkerWage";
+import DeepavaliBonus from "./pages/DeepavaliBonus";
 import { useRole } from "./lib/role";
 
 // The charting library is a large dependency and only two screens need it.
@@ -62,6 +63,14 @@ export default function App() {
             element={
               <AdminOnly>
                 <WorkTypes />
+              </AdminOnly>
+            }
+          />
+          <Route
+            path="/bonus"
+            element={
+              <AdminOnly>
+                <DeepavaliBonus />
               </AdminOnly>
             }
           />

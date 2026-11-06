@@ -7,6 +7,7 @@ import {
   Layers,
   PencilLine,
   Settings as SettingsIcon,
+  Sparkles,
   Users,
   Wallet,
 } from "lucide-react";
@@ -53,6 +54,13 @@ function useNavItems(): NavItem[] {
       label: "Towel types",
       short: "Types",
       icon: <Layers size={15} />,
+      adminOnly: true,
+    },
+    {
+      to: "/bonus",
+      label: "Deepavali bonus",
+      short: "Bonus",
+      icon: <Sparkles size={15} />,
       adminOnly: true,
     },
     {
@@ -156,7 +164,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           to={isAdmin ? "/settings" : "/history"}
           className="flex flex-1 flex-col items-center justify-center gap-1 py-2.5 text-[11px] font-medium"
           style={
-            ["/settings", "/workers", "/types", "/history"].some((p) =>
+            ["/settings", "/workers", "/types", "/history", "/bonus"].some((p) =>
               location.pathname.startsWith(p),
             )
               ? { color: "var(--accent)" }

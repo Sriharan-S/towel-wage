@@ -15,7 +15,15 @@ import {
   cx,
   useToast,
 } from "@/components/ui";
-import { useSetAdjustments, useSettleWeek, useToday, useWeek } from "@/lib/queries";
+import {
+  useBonusForWeek,
+  useSetAdjustments,
+  useSetOldRecord,
+  useSettleWeek,
+  useToday,
+  useWeek,
+} from "@/lib/queries";
+import { useRole } from "@/lib/role";
 import {
   buildWeekGrid,
   formatCellCount,
@@ -64,6 +72,9 @@ export default function WorkerWage() {
   const week = useWeek(weekStart);
   const setAdjustments = useSetAdjustments(weekStart);
   const settle = useSettleWeek(weekStart);
+  const setOldRecord = useSetOldRecord(weekStart);
+  const { isAdmin } = useRole();
+  const bonus = useBonusForWeek(weekStart, isAdmin).data;
   const { toast } = useToast();
 
   const worker = week.data?.workers.find((w) => w.workerId === workerId);
@@ -79,6 +90,15 @@ export default function WorkerWage() {
   });
   /** The "pay exactly this" box, kept separate from the adjustment fields. */
   const [payDraft, setPayDraft] = useState("");
+  /** Paying this week as normal, or noting what was paid from the notebook. */
+  const [payMode, setPayMode] = useState<"pay" | "old">("pay");
+  const [oldDraft, setOldDraft] = useState("");
+
+  useEffect(() => {
+    const recorded = worker?.manualWage ?? null;
+    setPayMode(recorded === null ? "pay" : "old");
+    setOldDraft(recorded === null ? "" : String(toRupees(recorded)));
+  }, [worker?.manualWage]);
 
   useEffect(() => {
     if (!worker) return;
@@ -133,7 +153,26 @@ export default function WorkerWage() {
     parsed.addback -
     parsed.advanceRecovered;
 
-  const owedAdvance = worker.openingBalance.advanceOutstanding;
+  // Leaves out whatever a later week shows was returned, so it cannot be taken twice.
+  const owedAdvance = Math.min(
+    worker.openingBalance.advanceOutstanding,
+    worker.carriedAdvance + worker.adjustments.advanceRecovered,
+  );
+  const isOldRecord = worker.manualWage !== null;
+  const workerBonus = bonus?.workers.find((w) => w.workerId === workerId && w.included);
+
+  const saveOldRecord = (amount: number | null) =>
+    setOldRecord.mutate(
+      { workerId, amount },
+      {
+        onSuccess: () =>
+          toast(amount === null ? "Old record removed." : `Recorded ${formatINR(amount)} as paid.`, {
+            tone: "success",
+          }),
+        onError: (error) =>
+          toast(error instanceof Error ? error.message : "Could not save", { tone: "error" }),
+      },
+    );
 
   /**
    * What this worker did on each day of the week.
@@ -166,11 +205,9 @@ export default function WorkerWage() {
     );
 
   /** Live read-out of what naming this amount would book, before applying it. */
-  const payPreview = useMemo(() => {
-    const target = parseRupeeInput(payDraft);
-    if (target <= 0) return null;
-    return computeTargetPayment(worker.wage, { ...parsed }, target);
-  }, [payDraft, parsed, worker.wage]);
+  const payTarget = parseRupeeInput(payDraft);
+  const payPreview =
+    payTarget > 0 ? computeTargetPayment(worker.wage, { ...parsed }, payTarget) : null;
 
   /** True once the typed figure is what the worker is actually set to be paid. */
   const payApplied = payPreview !== null && payPreview.netPayable === liveNet;
@@ -260,7 +297,13 @@ export default function WorkerWage() {
 
           {/* What the wage is made of */}
           <Section title="Wage breakdown" meta={formatINR(worker.wage)}>
-            {worker.lineItems.length === 0 ? (
+            {isOldRecord ? (
+              <p className="px-3 py-3 text-xs ink-3">
+                Old record: the amount paid, entered from the notebook.
+                {worker.ignoredWage > 0 &&
+                  ` Daily entries of ${formatINR(worker.ignoredWage)} this week are not being used.`}
+              </p>
+            ) : worker.lineItems.length === 0 ? (
               <p className="px-3 py-3 text-xs ink-3">No work recorded this week.</p>
             ) : (
               worker.lineItems.map((item) => (
@@ -297,7 +340,93 @@ export default function WorkerWage() {
             Naming the payment sits straight under the breakdown: you read what
             was earned, then say what you will hand over.
           */}
+          {workerBonus && bonus && (
+            <Section title="Deepavali bonus" meta={formatINR(workerBonus.bonus)}>
+              <p className="px-3 py-2.5 text-xs ink-2">
+                {bonus.percent}% of {formatINR(workerBonus.earned)} earned from{" "}
+                {formatWeekRange(bonus.startWeek)} to {formatWeekRange(bonus.endWeek)}. Paid
+                separately from this week's wage.
+              </p>
+            </Section>
+          )}
+
           {!readOnly && (
+            <div
+              role="group"
+              aria-label="How to enter this week"
+              className="grid grid-cols-2 gap-1 rounded-md border p-1"
+              style={{ background: "var(--panel)", borderColor: "var(--line)" }}
+            >
+              {(
+                [
+                  ["pay", "Pay this week"],
+                  ["old", "Old record"],
+                ] as const
+              ).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  aria-pressed={payMode === mode}
+                  disabled={isOldRecord && mode === "pay"}
+                  onClick={() => setPayMode(mode)}
+                  className="rounded px-2 py-1.5 text-xs font-medium disabled:opacity-50"
+                  style={
+                    payMode === mode
+                      ? { background: "var(--accent-soft)", color: "var(--accent)" }
+                      : { color: "var(--ink-2)" }
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {!readOnly && payMode === "old" && (
+            <Section title="Old record">
+              <div className="p-3">
+                <p className="text-xs ink-2">
+                  Enter the amount paid for this week from your notebook. It replaces the wage and
+                  is not booked as a credit or debit.
+                </p>
+                <div className="mt-2 flex items-end gap-2">
+                  <label className="min-w-0 flex-1">
+                    <span className="mb-1 block text-[11px] font-medium ink-2">
+                      Amount paid this week
+                    </span>
+                    <NumberInput
+                      value={oldDraft}
+                      placeholder="0"
+                      aria-label={`Amount paid to ${worker.workerName} this week`}
+                      onChange={(e) => setOldDraft(e.target.value)}
+                    />
+                  </label>
+                  <Button
+                    size="md"
+                    variant="primary"
+                    loading={setOldRecord.isPending}
+                    disabled={
+                      parseRupeeInput(oldDraft) <= 0 ||
+                      parseRupeeInput(oldDraft) === worker.manualWage
+                    }
+                    onClick={() => saveOldRecord(parseRupeeInput(oldDraft))}
+                  >
+                    Save
+                  </Button>
+                  {isOldRecord && (
+                    <Button
+                      size="md"
+                      disabled={setOldRecord.isPending}
+                      onClick={() => saveOldRecord(null)}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </Section>
+          )}
+
+          {!readOnly && payMode === "pay" && (
             <Section title="Pay a specific amount">
               <div className="p-3">
                 <p className="text-xs ink-2">
@@ -554,7 +683,7 @@ export default function WorkerWage() {
                 </div>
               ))}
 
-              {owedAdvance > 0 && !readOnly && (
+              {owedAdvance > 0 && !readOnly && !isOldRecord && (
                 <div className="px-3 py-3">
                   <p className="text-xs ink-2">
                     <strong>{worker.workerName}</strong> owes{" "}
@@ -598,7 +727,7 @@ export default function WorkerWage() {
           )}
 
           {/* The proposal */}
-          {!readOnly && (
+          {!readOnly && !isOldRecord && (
             <SettlementPlan
               settlement={worker.settlement}
               workerName={worker.workerName}
@@ -621,7 +750,7 @@ export default function WorkerWage() {
             <div className="space-y-1 px-3 py-2.5 text-xs">
               <BalanceLine
                 label={`${worker.workerName} owes you (advance)`}
-                value={worker.closingBalance.advanceOutstanding}
+                value={worker.carriedAdvance}
               />
               <BalanceLine
                 label={`${worker.workerName} owes you (credit)`}
@@ -632,7 +761,7 @@ export default function WorkerWage() {
                 value={worker.closingBalance.debitOutstanding}
                 positive
               />
-              {worker.closingBalance.advanceOutstanding === 0 &&
+              {worker.carriedAdvance === 0 &&
                 worker.closingBalance.creditOutstanding === 0 &&
                 worker.closingBalance.debitOutstanding === 0 && (
                   <p className="ink-3">All square — nothing carries forward.</p>
@@ -645,6 +774,7 @@ export default function WorkerWage() {
             one block that changes it, and it reads better as the closing move
             than as an interruption between the figures and their consequences.
           */}
+          {!isOldRecord && (
           <Section title="Adjustments">
             <div className="grid grid-cols-2 gap-3 p-3 sm:grid-cols-3">
               {FIELDS.map((field) => (
@@ -708,6 +838,7 @@ export default function WorkerWage() {
               </div>
             )}
           </Section>
+          )}
 
           {worker.lineItems.some((i) => i.rateVaried) && (
             <p className="px-1 text-[11px] ink-3">
@@ -725,7 +856,7 @@ export default function WorkerWage() {
       >
         <div className="mx-auto flex h-14 max-w-2xl items-center gap-3 px-3 lg:px-5">
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] ink-3">Net payable</div>
+            <div className="text-[11px] ink-3">{isOldRecord ? "Paid" : "Net payable"}</div>
             <Money className="text-xl font-semibold" tone="positive">
               {formatINR(liveNet)}
             </Money>
@@ -735,16 +866,18 @@ export default function WorkerWage() {
               <HandCoins size={10} /> {formatINR(owedAdvance)} owed
             </Badge>
           )}
-          <Button
-            size="md"
-            variant={worker.paidAt ? "primary" : "default"}
-            icon={worker.paidAt ? <Check size={14} /> : undefined}
-            onClick={() => save({ paid: !worker.paidAt })}
-            disabled={readOnly}
-            className={cx("min-w-24")}
-          >
-            {worker.paidAt ? "Paid" : "Mark paid"}
-          </Button>
+          {!isOldRecord && (
+            <Button
+              size="md"
+              variant={worker.paidAt ? "primary" : "default"}
+              icon={worker.paidAt ? <Check size={14} /> : undefined}
+              onClick={() => save({ paid: !worker.paidAt })}
+              disabled={readOnly}
+              className={cx("min-w-24")}
+            >
+              {worker.paidAt ? "Paid" : "Mark paid"}
+            </Button>
+          )}
         </div>
       </div>
     </>

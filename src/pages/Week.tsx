@@ -33,10 +33,12 @@ import {
   useBootstrap,
   useFinalizeWeek,
   useSettleWeek,
+  useBonusForWeek,
   useSignOut,
   useToday,
   useWeek,
 } from "@/lib/queries";
+import { useRole } from "@/lib/role";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, type DashboardStats } from "@/lib/api";
 import type { SheetStats } from "@/lib/pdf/weekSheet";
@@ -56,6 +58,8 @@ export default function Week() {
   const settle = useSettleWeek(weekStart);
   const finalize = useFinalizeWeek(weekStart);
   const logout = useSignOut();
+  const { isAdmin } = useRole();
+  const bonus = useBonusForWeek(weekStart, isAdmin).data;
   const { toast } = useToast();
   const signOut = () => logout.mutate();
 
@@ -283,7 +287,14 @@ export default function Week() {
             >
               {week.data.workers.map((worker) => {
                 const adjustment = worker.netPayable - worker.wage;
-                const advance = worker.openingBalance.advanceOutstanding;
+                // Leaves out whatever a later week shows was returned.
+                const advance = Math.min(
+                  worker.openingBalance.advanceOutstanding,
+                  worker.carriedAdvance + worker.adjustments.advanceRecovered,
+                );
+                const workerBonus = bonus?.workers.find(
+                  (w) => w.workerId === worker.workerId && w.included,
+                );
 
                 return (
                   <button
@@ -309,6 +320,10 @@ export default function Week() {
                       </span>
                       <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] ink-3">
                         <span className="tnum">wage {formatINR(worker.wage)}</span>
+                        {worker.manualWage !== null && <Badge>Old record</Badge>}
+                        {workerBonus && (
+                          <Badge tone="positive">bonus {formatINR(workerBonus.bonus)}</Badge>
+                        )}
                         {adjustment !== 0 && (
                           <span className="tnum">
                             {adjustment > 0 ? "+" : "−"}
@@ -332,7 +347,9 @@ export default function Week() {
                       <Money className="block text-base font-semibold" tone="positive">
                         {formatINR(worker.netPayable)}
                       </Money>
-                      <span className="text-[10px] ink-4">to pay</span>
+                      <span className="text-[10px] ink-4">
+                        {worker.manualWage !== null ? "paid" : "to pay"}
+                      </span>
                     </span>
                     <ChevronRight size={15} style={{ color: "var(--ink-4)" }} />
                   </button>
@@ -385,6 +402,32 @@ export default function Week() {
                 </Money>
               </div>
             </div>
+          )}
+
+          {bonus && (
+            <button
+              onClick={() => navigate("/bonus")}
+              className="mt-2 w-full overflow-hidden rounded-md border text-left"
+              style={{ background: "var(--panel)", borderColor: "var(--line)" }}
+            >
+              <div className="eyebrow border-b px-3 py-2" style={{ borderColor: "var(--line)" }}>
+                Deepavali bonus · paid separately from wages
+              </div>
+              <dl className="px-3 py-2 text-xs">
+                <SummaryRow label="Weeks" value={`${formatWeekRange(bonus.startWeek)} to ${formatWeekRange(bonus.endWeek)}`} />
+                <SummaryRow label="Workers" value={String(bonus.totals.workers)} />
+                <SummaryRow label="Earned" value={formatINR(bonus.totals.earned)} />
+              </dl>
+              <div
+                className="flex items-baseline justify-between border-t px-3 py-2.5"
+                style={{ background: "var(--panel-2)", borderColor: "var(--line-strong)" }}
+              >
+                <span className="text-xs font-semibold">Total bonus at {bonus.percent}%</span>
+                <Money className="text-xl font-semibold" tone="positive">
+                  {formatINR(bonus.totals.bonus)}
+                </Money>
+              </div>
+            </button>
           )}
         </div>
       </div>
@@ -501,7 +544,7 @@ function toSheetStats(stats: DashboardStats, week: WeekResult): SheetStats {
         workerName: worker.workerName,
         creditOutstanding: worker.closingBalance.creditOutstanding,
         debitOutstanding: worker.closingBalance.debitOutstanding,
-        advanceOutstanding: worker.closingBalance.advanceOutstanding,
+        advanceOutstanding: worker.carriedAdvance,
       }))
       .filter(
         (b) =>

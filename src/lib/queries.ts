@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ISODate } from "@shared/dates";
 import { todayISO } from "@shared/dates";
-import { api, type AdjustmentInput, type DayEntryInput, type RateInput } from "./api";
+import {
+  api,
+  type AdjustmentInput,
+  type BonusInput,
+  type DayEntryInput,
+  type RateInput,
+} from "./api";
 
 export const keys = {
   bootstrap: ["bootstrap"] as const,
@@ -113,6 +119,56 @@ export function useSetAdjustments(weekStart: ISODate) {
       client.invalidateQueries({ queryKey: ["week"] });
       client.invalidateQueries({ queryKey: ["weeks"] });
       client.invalidateQueries({ queryKey: ["stats"] });
+    },
+  });
+}
+
+export function useSetOldRecord(weekStart: ISODate) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ workerId, amount }: { workerId: number; amount: number | null }) =>
+      api.weeks.setOldRecord(weekStart, workerId, amount),
+    onSuccess: (week) => {
+      client.setQueryData(keys.week(weekStart), week);
+      client.invalidateQueries({ queryKey: ["week"] });
+      client.invalidateQueries({ queryKey: ["weeks"] });
+      client.invalidateQueries({ queryKey: ["stats"] });
+      client.invalidateQueries({ queryKey: ["bonus"] });
+    },
+  });
+}
+
+/** Always re-read: a draft moves whenever any wage in its range does. */
+export function useBonus(year: number) {
+  return useQuery({
+    queryKey: ["bonus", year],
+    queryFn: () => api.bonus.get(year),
+    staleTime: 0,
+  });
+}
+
+/** The bonus ending on this week. Managers cannot read it, so they never ask. */
+export function useBonusForWeek(weekStart: ISODate, enabled: boolean) {
+  return useQuery({
+    queryKey: ["bonus", "week", weekStart],
+    queryFn: () => api.bonus.forWeek(weekStart),
+    enabled,
+    staleTime: 0,
+  });
+}
+
+export function useBonusAction(year: number) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (action: BonusInput | "finalize" | "reopen") =>
+      action === "finalize"
+        ? api.bonus.finalize(year)
+        : action === "reopen"
+          ? api.bonus.reopen(year)
+          : api.bonus.save(year, action),
+    onSuccess: (run) => {
+      client.setQueryData(["bonus", year], run);
+      client.invalidateQueries({ queryKey: ["bonus", "week"] });
     },
   });
 }

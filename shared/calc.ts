@@ -492,6 +492,31 @@ export function suggestSettlement(params: {
   };
 }
 
+/**
+ * How much of a week's closing advance is never returned afterwards.
+ *
+ * Walks the later movements in date order and keeps the lowest the balance ever
+ * reaches: once ₹500 has come back, that ₹500 is gone, and a fresh loan the week
+ * after is a different debt that this week was not carrying. Never negative.
+ */
+export function carriedAdvance(
+  closing: number,
+  later: Array<{ date: string; delta: number }>,
+): number {
+  let running = closing;
+  let lowest = closing;
+  for (const event of [...later].sort((a, b) => a.date.localeCompare(b.date))) {
+    running += event.delta;
+    lowest = Math.min(lowest, running);
+  }
+  return Math.max(0, lowest);
+}
+
+/** A bonus on what was earned, to the nearest whole rupee. */
+export function bonusAmount(earned: number, percent: number): number {
+  return Math.round((earned * percent) / 10_000) * 100;
+}
+
 /** Total quantity across every count-based line item (towels handled). */
 export function totalQuantity(items: LineItemResult[]): number {
   return items.reduce(

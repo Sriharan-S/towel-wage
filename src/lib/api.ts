@@ -2,6 +2,7 @@ import type {
   Advance,
   AdvanceKind,
   Bootstrap,
+  BonusRun,
   Entry,
   Settings,
   WeekResult,
@@ -175,6 +176,13 @@ export interface AdjustmentInput {
   paid?: boolean;
 }
 
+export interface BonusInput {
+  startWeek: ISODate;
+  endWeek: ISODate;
+  percent: number;
+  excluded: number[];
+}
+
 export interface AdvanceInput {
   workerId: number;
   entryDate: ISODate;
@@ -292,6 +300,9 @@ export const api = {
     get: (weekStart: ISODate) => request<WeekResult>(`/weeks/${weekStart}`),
     setAdjustments: (weekStart: ISODate, workerId: number, body: AdjustmentInput) =>
       send<WeekResult>("PUT", `/weeks/${weekStart}/adjustments/${workerId}`, body),
+    /** Record what was paid from the notebook; null removes the record. */
+    setOldRecord: (weekStart: ISODate, workerId: number, amount: number | null) =>
+      send<WeekResult>("PUT", `/weeks/${weekStart}/old-record/${workerId}`, { amount }),
     /** Apply the settlement proposal — one worker, or everyone when omitted. */
     settle: (weekStart: ISODate, workerId?: number) =>
       send<WeekResult>(
@@ -327,6 +338,14 @@ export const api = {
       request<{ workerId: number; outstanding: number; ledger: AdvanceLedgerRow[] }>(
         `/advances/worker/${workerId}/ledger`,
       ),
+  },
+
+  bonus: {
+    get: (year: number) => request<BonusRun | null>(`/bonus/${year}`),
+    forWeek: (weekStart: ISODate) => request<BonusRun | null>(`/bonus/week/${weekStart}`),
+    save: (year: number, body: BonusInput) => send<BonusRun>("PUT", `/bonus/${year}`, body),
+    finalize: (year: number) => send<BonusRun>("POST", `/bonus/${year}/finalize`),
+    reopen: (year: number) => send<BonusRun>("POST", `/bonus/${year}/reopen`),
   },
 
   settings: {

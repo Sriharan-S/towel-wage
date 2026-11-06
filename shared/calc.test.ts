@@ -1,3 +1,4 @@
+import { bonusAmount, carriedAdvance } from "./calc";
 import { describe, expect, it } from "vitest";
 import {
   advanceDelta,
@@ -1004,5 +1005,39 @@ describe("carry-forward balance", () => {
     // Accepting it leaves the worker square.
     const settled = applyToBalance(opening, { ...ZERO_ADJUSTMENTS, deduct: suggestion.deduct });
     expect(settled.creditOutstanding).toBe(0);
+  });
+});
+
+describe("carriedAdvance", () => {
+  it("shows nothing once the advance is returned in a later week", () => {
+    expect(carriedAdvance(50_000, [{ date: "2026-08-12", delta: -50_000 }])).toBe(0);
+  });
+
+  it("shows what remains after a part return", () => {
+    expect(carriedAdvance(50_000, [{ date: "2026-08-12", delta: -20_000 }])).toBe(30_000);
+  });
+
+  it("does not count a fresh loan after the return as carried", () => {
+    expect(
+      carriedAdvance(50_000, [
+        { date: "2026-08-19", delta: 30_000 },
+        { date: "2026-08-12", delta: -50_000 },
+      ]),
+    ).toBe(0);
+  });
+
+  it("is never negative", () => {
+    expect(carriedAdvance(-50_000, [])).toBe(0);
+  });
+});
+
+describe("bonusAmount", () => {
+  it("takes the percentage of what was earned", () => {
+    expect(bonusAmount(1_000_000, 8)).toBe(80_000);
+  });
+
+  it("rounds to the nearest rupee", () => {
+    expect(bonusAmount(230_200, 8)).toBe(18_400); // 184.16
+    expect(bonusAmount(230_700, 8)).toBe(18_500); // 184.56
   });
 });

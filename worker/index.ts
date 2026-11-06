@@ -31,6 +31,7 @@ import settings from "./routes/settings";
 import backup from "./routes/backup";
 import advances from "./routes/advances";
 import auth from "./routes/auth";
+import bonus from "./routes/bonus";
 
 const app = new Hono<AppEnv>();
 
@@ -75,8 +76,8 @@ app.use("/api/*", async (c, next) => {
 
 /** Paths a manager may reach, by method. */
 function isManagerAllowed(method: string, path: string): boolean {
-  // Configuration and backups are admin-only outright.
-  const adminOnly = ["/api/settings", "/api/backup"];
+  // Configuration, backups and the Deepavali bonus are admin-only outright.
+  const adminOnly = ["/api/settings", "/api/backup", "/api/bonus"];
   if (adminOnly.some((prefix) => path.startsWith(prefix))) return false;
 
   // Workers and towel types stay readable — the entry and wage screens cannot
@@ -121,6 +122,7 @@ app.route("/api/stats", stats);
 app.route("/api/advances", advances);
 app.route("/api/settings", settings);
 app.route("/api/backup", backup);
+app.route("/api/bonus", bonus);
 
 app.notFound((c) => c.json({ error: `No API route for ${c.req.path}` }, 404));
 

@@ -18,6 +18,8 @@ const TABLES = [
   "week_adjustments",
   "advances",
   "settings",
+  "bonus_runs",
+  "bonus_lines",
 ] as const;
 
 /** Full JSON snapshot — the backup you can restore from. */
@@ -68,10 +70,15 @@ async function exportCsv(c: Context<AppEnv>) {
   }
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
+  // A week that is only old records has no entries but still belongs in the file.
   const { results } = await c.env.DB.prepare(
-    `SELECT DISTINCT week_start FROM entries ${where} ORDER BY week_start`,
+    `SELECT week_start FROM entries ${where}
+     UNION
+     SELECT week_start FROM week_adjustments
+       ${where ? `${where} AND` : "WHERE"} manual_wage IS NOT NULL
+     ORDER BY week_start`,
   )
-    .bind(...binds)
+    .bind(...binds, ...binds)
     .all<{ week_start: string }>();
 
   const rows: string[][] = [

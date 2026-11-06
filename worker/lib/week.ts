@@ -9,6 +9,7 @@ import {
   advanceDelta,
   applyToBalance,
   buildLineItems,
+  carriedAdvance,
   netPayable,
   suggestFromBalance,
   suggestSettlement,
@@ -61,7 +62,7 @@ export async function computeWeek(
   db: D1Database,
   weekStart: ISODate,
 ): Promise<WeekResult> {
-  const [workerRes, typeRes, rateRes, entryRes, adjRes, weekRow, advanceRes] =
+  const [workerRes, typeRes, rateRes, entryRes, adjRes, weekRow, advanceRes, recoveredRes] =
     await db.batch([
       db.prepare("SELECT * FROM workers ORDER BY sort_order, name"),
       db.prepare("SELECT * FROM work_types ORDER BY sort_order, name"),
@@ -73,8 +74,14 @@ export async function computeWeek(
         .prepare("SELECT * FROM week_adjustments WHERE week_start <= ? ORDER BY week_start")
         .bind(weekStart),
       db.prepare("SELECT status, finalized_at FROM weeks WHERE week_start = ?").bind(weekStart),
+      // All of them, later weeks too: what was returned afterwards decides what
+      // this week shows as still carried.
+      db.prepare("SELECT * FROM advances ORDER BY entry_date, id"),
       db
-        .prepare("SELECT * FROM advances WHERE week_start <= ? ORDER BY entry_date, id")
+        .prepare(
+          `SELECT week_start, worker_id, advance_recovered FROM week_adjustments
+           WHERE week_start > ? AND advance_recovered > 0`,
+        )
         .bind(weekStart),
     ]);
 
@@ -129,7 +136,25 @@ export async function computeWeek(
   // opening figure too — the money is already out of the till, and holding it
   // back on Saturday is the whole point.
   const advancesThisWeek = new Map<number, typeof advances>();
+  const laterAdvanceMoves = new Map<number, Array<{ date: string; delta: number }>>();
+  const addLaterMove = (workerId: number, date: string, delta: number) => {
+    const list = laterAdvanceMoves.get(workerId) ?? [];
+    list.push({ date, delta });
+    laterAdvanceMoves.set(workerId, list);
+  };
+  for (const row of recoveredRes.results as unknown as Array<{
+    week_start: string;
+    worker_id: number;
+    advance_recovered: number;
+  }>) {
+    // Taken off the wage, so it happens at that week's payout.
+    addLaterMove(row.worker_id, weekEndOf(row.week_start), -row.advance_recovered);
+  }
   for (const advance of advances) {
+    if (advance.weekStart > weekStart) {
+      addLaterMove(advance.workerId, advance.entryDate, advanceDelta([advance]));
+      continue;
+    }
     const balance = openingBalances.get(advance.workerId) ?? ZERO_BALANCE;
     openingBalances.set(advance.workerId, {
       ...balance,
@@ -164,16 +189,21 @@ export async function computeWeek(
       worker.isActive &&
       workerRates.length === 0 &&
       workerEntries.length === 0 &&
-      workerAdvances.length === 0
+      workerAdvances.length === 0 &&
+      adjustmentRow?.manualWage == null
     )
       continue;
 
-    const lineItems = buildLineItems({
+    const calculatedItems = buildLineItems({
       weekStart,
       entries: workerEntries,
       rates: workerRates,
       workTypes,
     });
+
+    // An old record stands in for the whole calculation.
+    const manualWage = adjustmentRow?.manualWage ?? null;
+    const lineItems = manualWage === null ? calculatedItems : [];
 
     const adj = adjustmentRow
       ? {
@@ -188,9 +218,12 @@ export async function computeWeek(
     // A finalized week pays whatever was frozen at finalize time, so later
     // edits to prices or entries can never rewrite a payment already made.
     const liveWage = sumLineItemWages(lineItems);
-    const wage = status === "finalized" && adjustmentRow?.wage != null ? adjustmentRow.wage : liveWage;
+    const wage =
+      manualWage ??
+      (status === "finalized" && adjustmentRow?.wage != null ? adjustmentRow.wage : liveWage);
 
     const opening = openingBalances.get(worker.id) ?? ZERO_BALANCE;
+    const closing = applyToBalance(opening, adj);
 
     results.push({
       workerId: worker.id,
@@ -200,15 +233,35 @@ export async function computeWeek(
       adjustments: adj,
       netPayable: netPayable(wage, adj),
       openingBalance: opening,
-      closingBalance: applyToBalance(opening, adj),
+      closingBalance: closing,
+      manualWage,
+      ignoredWage: manualWage === null ? 0 : sumLineItemWages(calculatedItems),
+      carriedAdvance: carriedAdvance(
+        closing.advanceOutstanding,
+        laterAdvanceMoves.get(worker.id) ?? [],
+      ),
       suggested: suggestFromBalance(opening),
-      settlement: suggestSettlement({
-        wage,
-        opening,
-        step: settings.roundingStep,
-        mode: settings.roundingMode,
-        current: adj,
-      }),
+      settlement:
+        manualWage === null
+          ? suggestSettlement({
+              wage,
+              opening,
+              step: settings.roundingStep,
+              mode: settings.roundingMode,
+              current: adj,
+            })
+          : // Already paid, so there is nothing to propose.
+            {
+              ...ZERO_ADJUSTMENTS,
+              netPayable: wage,
+              settled: wage,
+              remainingCredit: 0,
+              carriedDebit: closing.debitOutstanding,
+              advanceOutstanding: closing.advanceOutstanding,
+              mode: settings.roundingMode,
+              step: settings.roundingStep,
+              isNoop: true,
+            },
       advances: workerAdvances,
       paidAt: adjustmentRow?.paidAt ?? null,
       note: adjustmentRow?.note ?? null,

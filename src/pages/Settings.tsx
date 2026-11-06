@@ -7,6 +7,7 @@ import {
   Layers,
   LogOut,
   Upload,
+  Sparkles,
   Users,
 } from "lucide-react";
 import { PageBody, PageHeader } from "@/components/layout/AppShell";
@@ -113,6 +114,18 @@ export default function Settings() {
                 <p className="text-xs ink-2">
                   {bootstrap.data.workTypes.filter((t) => t.isActive).length} active
                 </p>
+              </div>
+            </button>
+          </Panel>
+          <Panel>
+            <button
+              className="flex w-full items-center gap-3 p-4 text-left"
+              onClick={() => navigate("/bonus")}
+            >
+              <Sparkles size={20} style={{ color: "var(--accent)" }} />
+              <div>
+                <p className="font-medium">Deepavali bonus</p>
+                <p className="text-xs ink-2">Work out the year's bonus</p>
               </div>
             </button>
           </Panel>

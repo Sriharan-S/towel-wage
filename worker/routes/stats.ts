@@ -67,6 +67,10 @@ app.get("/summary", async (c) => {
 
   // --- per week x per worker rollup -----------------------------------------
   const entriesByWeek = groupBy(entries, (e) => e.weekStart);
+  const oldRecordsByWeek = groupBy(
+    adjustments.filter((a) => a.manualWage !== null),
+    (a) => a.weekStart,
+  );
 
   interface WeekRow {
     weekStart: ISODate;
@@ -90,7 +94,15 @@ app.get("/summary", async (c) => {
       byWorkType: {},
     };
 
+    // An old record replaces whatever the entries come to, and has no towel types.
+    const oldRecords = oldRecordsByWeek.get(weekStart) ?? [];
+    for (const record of oldRecords) {
+      row.wage += record.manualWage ?? 0;
+      row.byWorker[record.workerId] = record.manualWage ?? 0;
+    }
+
     for (const [workerId, workerEntries] of byWorkerEntries) {
+      if (oldRecords.some((record) => record.workerId === workerId)) continue;
       const items = buildLineItems({
         weekStart,
         entries: workerEntries,
@@ -216,13 +228,24 @@ app.get("/worker/:workerId", async (c) => {
   const today = todayISO(settings.timezone);
   const weekStarts = recentWeekStarts(today, weekCount);
 
-  const [typeRes, rateRes, entryRes] = await c.env.DB.batch([
+  const [typeRes, rateRes, entryRes, oldRecordRes] = await c.env.DB.batch([
     c.env.DB.prepare("SELECT * FROM work_types"),
     c.env.DB.prepare("SELECT * FROM worker_rates WHERE worker_id = ? ORDER BY sort_order").bind(workerId),
     c.env.DB
       .prepare("SELECT * FROM entries WHERE worker_id = ? AND entry_date >= ?")
       .bind(workerId, weekStarts[0]),
+    c.env.DB
+      .prepare(
+        "SELECT week_start, manual_wage FROM week_adjustments WHERE worker_id = ? AND manual_wage IS NOT NULL",
+      )
+      .bind(workerId),
   ]);
+
+  const oldRecords = new Map(
+    (oldRecordRes.results as unknown as Array<{ week_start: string; manual_wage: number }>).map(
+      (r) => [r.week_start, r.manual_wage] as const,
+    ),
+  );
 
   const workTypes = new Map(
     (typeRes.results as unknown as WorkTypeRow[]).map(toWorkType).map((t) => [t.id, t] as const),
@@ -232,6 +255,10 @@ app.get("/worker/:workerId", async (c) => {
   const byWeek = groupBy(entries, (e) => e.weekStart);
 
   const weeks = weekStarts.map((weekStart) => {
+    const oldRecord = oldRecords.get(weekStart);
+    if (oldRecord !== undefined) {
+      return { weekStart, wage: oldRecord, quantity: 0, effectiveRate: 0, byWorkType: [] };
+    }
     const items = buildLineItems({
       weekStart,
       entries: byWeek.get(weekStart) ?? [],

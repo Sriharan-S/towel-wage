@@ -72,6 +72,9 @@ function makeWorker(id: number, name: string, itemCount: number): WorkerWeekResu
     wage,
     adjustments: { ...ZERO_ADJUSTMENTS, debit: wage - net },
     netPayable: net,
+    manualWage: null,
+    ignoredWage: 0,
+    carriedAdvance: 0,
     openingBalance: { creditOutstanding: 0, debitOutstanding: 0, advanceOutstanding: 0 },
     closingBalance: {
       creditOutstanding: 0,

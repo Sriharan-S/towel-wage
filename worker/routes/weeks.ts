@@ -96,6 +96,24 @@ app.put("/:weekStart/adjustments/:workerId", async (c) => {
     .first<{ id: number }>();
   if (!worker) throw new HTTPException(404, { message: "Worker not found." });
 
+  const existing = await c.env.DB.prepare(
+    "SELECT manual_wage FROM week_adjustments WHERE week_start = ? AND worker_id = ?",
+  )
+    .bind(weekStart, workerId)
+    .first<{ manual_wage: number | null }>();
+  const movesMoney = [
+    body.credit,
+    body.deduct,
+    body.debit,
+    body.addback,
+    body.advanceRecovered,
+  ].some((value) => value !== undefined);
+  if (existing?.manual_wage != null && movesMoney) {
+    throw new HTTPException(409, {
+      message: "This week is an old record. Remove the record before adjusting it.",
+    });
+  }
+
   // Create the row if this is the first adjustment of the week.
   await c.env.DB.prepare(
     "INSERT OR IGNORE INTO week_adjustments (week_start, worker_id) VALUES (?, ?)",
@@ -128,6 +146,44 @@ app.put("/:weekStart/adjustments/:workerId", async (c) => {
 });
 
 /**
+ * PUT /api/weeks/:weekStart/old-record/:workerId
+ *
+ * Record what a worker was paid for a week from before this app, or pass
+ * `amount: null` to remove the record. Clears every adjustment on the week: the
+ * money is already paid, so it must not move any balance.
+ */
+app.put("/:weekStart/old-record/:workerId", async (c) => {
+  const weekStart = weekStartOf(readDate(c.req.param("weekStart"), "weekStart"));
+  const workerId = readId(c, "workerId");
+  const { amount } = await readJson(
+    c,
+    z.object({ amount: z.number().int().positive().max(100_000_000).nullable() }),
+  );
+
+  await assertWeekOpen(c.env.DB, weekStart);
+  await ensureWeek(c.env.DB, weekStart);
+
+  const worker = await c.env.DB.prepare("SELECT id FROM workers WHERE id = ?")
+    .bind(workerId)
+    .first<{ id: number }>();
+  if (!worker) throw new HTTPException(404, { message: "Worker not found." });
+
+  await c.env.DB.prepare(
+    `INSERT INTO week_adjustments
+       (week_start, worker_id, credit, deduct, debit, addback, advance_recovered, manual_wage, paid_at)
+     VALUES (?1, ?2, 0, 0, 0, 0, 0, ?3, ?4)
+     ON CONFLICT (week_start, worker_id) DO UPDATE SET
+       credit = 0, deduct = 0, debit = 0, addback = 0, advance_recovered = 0,
+       manual_wage = excluded.manual_wage,
+       paid_at = excluded.paid_at`,
+  )
+    .bind(weekStart, workerId, amount, amount === null ? null : new Date().toISOString())
+    .run();
+
+  return c.json(await computeWeek(c.env.DB, weekStart));
+});
+
+/**
  * Apply the one-tap settlement — for one worker, or for everyone at once.
  *
  * The proposal is recomputed here rather than accepted from the request body,
@@ -143,9 +199,9 @@ app.post("/:weekStart/settle/:workerId?", async (c) => {
   await ensureWeek(c.env.DB, weekStart);
 
   const week = await computeWeek(c.env.DB, weekStart);
-  const targets = workerId
-    ? week.workers.filter((w) => w.workerId === workerId)
-    : week.workers;
+  const targets = (
+    workerId ? week.workers.filter((w) => w.workerId === workerId) : week.workers
+  ).filter((w) => w.manualWage === null);
 
   if (targets.length === 0) {
     throw new HTTPException(404, {

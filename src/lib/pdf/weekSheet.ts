@@ -836,6 +836,8 @@ function noteLines(worker: WorkerWeekResult, columns: GridColumn[]): string[] {
     );
   }
 
+  if (worker.manualWage !== null) notes.push("Old record: amount paid, entered from the notebook.");
+
   const closing = worker.closingBalance;
   if (closing.creditOutstanding > 0) {
     notes.push(`Carried forward: ${formatINR(closing.creditOutstanding)} owed back to you.`);
